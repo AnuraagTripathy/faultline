@@ -1,23 +1,8 @@
-use std::fs::{self, File};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
-
-/// One committed checkpoint entry in metadata.json.
-#[derive(Serialize)]
-struct CheckpointEntry {
-    step: u32,
-    path: String,
-    status: String,
-}
-
-/// Tracks the latest step and all committed checkpoints.
-#[derive(Serialize)]
-struct Metadata {
-    latest_step: u32,
-    checkpoints: Vec<CheckpointEntry>,
-}
+use anyhow::Result;
+use clap::{Parser, Subcommand};
+use runtime::checkpoint_manager::CheckpointManager;
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -26,64 +11,82 @@ fn repo_root() -> PathBuf {
         .to_path_buf()
 }
 
-fn checkpoints_dir() -> PathBuf {
-    repo_root().join("checkpoints")
+fn checkpoint_manager() -> CheckpointManager {
+    CheckpointManager::new(repo_root().join("checkpoints"), "checkpoints")
 }
 
-fn checkpoint_path(step: u32) -> PathBuf {
-    checkpoints_dir().join(format!("step_{step:04}.ckpt"))
+#[derive(Parser)]
+#[command(name = "faultline", about = "Faultline checkpoint CLI")]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
 }
 
-fn temp_checkpoint_path(step: u32) -> PathBuf {
-    checkpoints_dir().join(format!("step_{step:04}.ckpt.tmp"))
+#[derive(Subcommand)]
+enum Command {
+    /// Save a checkpoint for a training step.
+    Save {
+        step: u64,
+        /// Checkpoint payload. If omitted, saves fake placeholder data.
+        #[arg(long)]
+        data: Option<String>,
+    },
+    /// List all committed checkpoints from metadata.json.
+    List,
+    /// Show the latest committed checkpoint.
+    Latest,
+    /// Load and print the latest checkpoint bytes.
+    #[command(name = "load-latest")]
+    LoadLatest,
+    /// Keep only the latest N checkpoints and delete older files.
+    Prune {
+        keep_last: usize,
+    },
 }
 
-fn write_checkpoint(step: u32, data: &str) -> std::io::Result<()> {
-    let temp_path = temp_checkpoint_path(step);
-    let final_path = checkpoint_path(step);
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+    let manager = checkpoint_manager();
 
-    println!("Writing temporary checkpoint");
-
-    let mut file = File::create(&temp_path)?;
-    file.write_all(data.as_bytes())?;
-    file.flush()?;
-    file.sync_all()?;
-
-    fs::rename(&temp_path, &final_path)?;
-
-    Ok(())
-}
-
-fn write_metadata(step: u32) -> std::io::Result<()> {
-    let metadata = Metadata {
-        latest_step: step,
-        checkpoints: vec![CheckpointEntry {
-            step,
-            path: format!("checkpoints/step_{step:04}.ckpt"),
-            status: "committed".to_string(),
-        }],
-    };
-
-    let json = serde_json::to_string_pretty(&metadata)?;
-    fs::write(checkpoints_dir().join("metadata.json"), json)?;
-    Ok(())
-}
-
-fn main() {
-    println!("Faultline runtime started");
-
-    let dir = checkpoints_dir();
-    if !dir.exists() {
-        fs::create_dir_all(&dir).expect("failed to create checkpoints directory");
-        println!("Created checkpoints directory");
+    match cli.command {
+        Command::Save { step, data } => {
+            let bytes = match data {
+                Some(payload) => payload.into_bytes(),
+                None => format!("fake checkpoint data for step {step}").into_bytes(),
+            };
+            manager.save_checkpoint(step, &bytes)?;
+        }
+        Command::List => {
+            let checkpoints = manager.list_checkpoints()?;
+            if checkpoints.is_empty() {
+                println!("No checkpoints found.");
+            } else {
+                for entry in checkpoints {
+                    println!(
+                        "step {} | path {} | status {}",
+                        entry.step, entry.path, entry.status
+                    );
+                }
+            }
+        }
+        Command::Latest => {
+            match manager.latest_checkpoint()? {
+                Some(entry) => {
+                    println!("latest step: {}", entry.step);
+                    println!("path: {}", entry.path);
+                }
+                None => println!("No latest checkpoint found."),
+            }
+        }
+        Command::LoadLatest => match manager.load_latest()? {
+            Some(bytes) => println!("{}", String::from_utf8_lossy(&bytes)),
+            None => println!("No latest checkpoint found."),
+        },
+        Command::Prune { keep_last } => {
+            let deleted = manager.prune_checkpoints(keep_last)?;
+            println!("Deleted {deleted} checkpoint file(s).");
+        }
     }
 
-    let step = 1;
-    let data = "fake checkpoint data for step 1";
-
-    write_checkpoint(step, data).expect("failed to write checkpoint");
-    println!("Committed checkpoint step {step}");
-
-    write_metadata(step).expect("failed to write metadata");
-    println!("Wrote metadata.json");
+    Ok(())
 }
