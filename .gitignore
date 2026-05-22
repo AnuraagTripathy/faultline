@@ -1,0 +1,49 @@
+# Rust
+target/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.python-version
+
+# Conda
+.env
+.venv
+venv/
+env/
+ENV/
+conda-meta/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment variables
+.env.local
+.env.*.local
+
+# Benchmarks / generated artifacts
+checkpoints/
+benchmarks/output/
+tmp/
+temp/
+
+# PyTorch
+*.pt
+*.pth
+
+# Rust/Cargo
+Cargo.lock
+
+# Profiling artifacts
+flamegraph.svg
+perf.data*
