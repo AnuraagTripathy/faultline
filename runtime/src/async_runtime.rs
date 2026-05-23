@@ -7,12 +7,15 @@ use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::task::JoinHandle;
 
 use crate::checkpoint_manager::CheckpointManager;
+use crate::metadata::CheckpointEntry;
 use crate::runtime_metrics::RuntimeMetrics;
 
 /// One checkpoint write request sent through the async queue.
 pub struct CheckpointJob {
     pub step: u64,
     pub data: Vec<u8>,
+    pub worker_id: Option<u64>,
+    pub local_step: Option<u64>,
 }
 
 /// Runtime-only status for a checkpoint job, keyed by training step.
@@ -34,6 +37,7 @@ pub struct AsyncCheckpointRuntime {
     writer_handle: JoinHandle<()>,
     statuses: StatusMap,
     metrics: MetricsMap,
+    manager: Arc<CheckpointManager>,
 }
 
 impl AsyncCheckpointRuntime {
@@ -44,7 +48,34 @@ impl AsyncCheckpointRuntime {
 
     /// Try to queue a checkpoint without waiting. Returns `Ok(false)` when the queue is full.
     pub async fn try_enqueue_checkpoint(&self, step: u64, data: Vec<u8>) -> Result<bool> {
-        match self.sender.try_send(CheckpointJob { step, data }) {
+        self.try_enqueue_job(CheckpointJob {
+            step,
+            data,
+            worker_id: None,
+            local_step: None,
+        })
+        .await
+    }
+
+    pub async fn try_enqueue_worker_checkpoint(
+        &self,
+        worker_id: u64,
+        local_step: u64,
+        global_step: u64,
+        data: Vec<u8>,
+    ) -> Result<bool> {
+        self.try_enqueue_job(CheckpointJob {
+            step: global_step,
+            data,
+            worker_id: Some(worker_id),
+            local_step: Some(local_step),
+        })
+        .await
+    }
+
+    async fn try_enqueue_job(&self, job: CheckpointJob) -> Result<bool> {
+        let step = job.step;
+        match self.sender.try_send(job) {
             Ok(()) => {
                 record_enqueued(&self.metrics).await;
                 set_status(&self.statuses, step, CheckpointJobStatus::Queued).await;
@@ -63,13 +94,54 @@ impl AsyncCheckpointRuntime {
 
     /// Queue a checkpoint write. Waits for queue space when the queue is full.
     pub async fn enqueue_checkpoint(&self, step: u64, data: Vec<u8>) -> Result<()> {
+        self.enqueue_job(CheckpointJob {
+            step,
+            data,
+            worker_id: None,
+            local_step: None,
+        })
+        .await
+    }
+
+    pub async fn enqueue_worker_checkpoint(
+        &self,
+        worker_id: u64,
+        local_step: u64,
+        global_step: u64,
+        data: Vec<u8>,
+    ) -> Result<()> {
+        self.enqueue_job(CheckpointJob {
+            step: global_step,
+            data,
+            worker_id: Some(worker_id),
+            local_step: Some(local_step),
+        })
+        .await
+    }
+
+    async fn enqueue_job(&self, job: CheckpointJob) -> Result<()> {
+        let step = job.step;
         self.sender
-            .send(CheckpointJob { step, data })
+            .send(job)
             .await
             .context("checkpoint writer is shut down")?;
         record_enqueued(&self.metrics).await;
         set_status(&self.statuses, step, CheckpointJobStatus::Queued).await;
         Ok(())
+    }
+
+    pub fn latest_checkpoint_for_worker(
+        &self,
+        worker_id: u64,
+    ) -> Result<Option<CheckpointEntry>> {
+        self.manager.latest_checkpoint_for_worker(worker_id)
+    }
+
+    /// Prune worker-aware checkpoints. Prefer calling after the queue has drained;
+    /// concurrent writes may race with metadata updates.
+    pub fn prune_checkpoints_per_worker(&self, keep_last_per_worker: usize) -> Result<usize> {
+        self.manager
+            .prune_checkpoints_per_worker(keep_last_per_worker)
     }
 
     /// Return the latest known status for one training step.
@@ -97,6 +169,11 @@ impl AsyncCheckpointRuntime {
         Arc::clone(&self.metrics)
     }
 
+    /// Shared checkpoint manager used by the background writer (and gRPC sync saves).
+    pub fn shared_manager(&self) -> Arc<CheckpointManager> {
+        Arc::clone(&self.manager)
+    }
+
     /// Close the queue and wait until all pending jobs finish.
     pub async fn shutdown(self) -> Result<()> {
         drop(self.sender);
@@ -115,6 +192,7 @@ impl AsyncCheckpointRuntime {
     ) -> Self {
         let (sender, mut receiver) = mpsc::channel::<CheckpointJob>(queue_capacity);
         let manager = Arc::new(manager);
+        let reader_manager = Arc::clone(&manager);
         let statuses: StatusMap = Arc::new(Mutex::new(HashMap::new()));
         let metrics: MetricsMap = Arc::new(Mutex::new(RuntimeMetrics::default()));
         let writer_statuses = Arc::clone(&statuses);
@@ -129,16 +207,23 @@ impl AsyncCheckpointRuntime {
                 let step = job.step;
                 set_status(&writer_statuses, step, CheckpointJobStatus::Writing).await;
 
-                println!("Queued checkpoint step {step}");
-                println!("Writing checkpoint step {step}");
+                eprintln!("Queued checkpoint step {step}");
+                eprintln!("Writing checkpoint step {step}");
 
                 let manager = Arc::clone(&manager);
                 let data = job.data;
                 let byte_len = data.len() as u64;
 
+                let worker_id = job.worker_id;
+                let local_step = job.local_step;
                 let save_result = tokio::task::spawn_blocking(move || {
                     let started = Instant::now();
-                    let result = manager.save_checkpoint(step, &data);
+                    let result = match (worker_id, local_step) {
+                        (Some(worker_id), Some(local_step)) => {
+                            manager.save_worker_checkpoint(worker_id, local_step, step, &data)
+                        }
+                        _ => manager.save_checkpoint(step, &data),
+                    };
                     (result, started.elapsed(), byte_len)
                 })
                 .await;
@@ -146,7 +231,7 @@ impl AsyncCheckpointRuntime {
                 let status = match save_result {
                     Ok((Ok(()), elapsed, bytes)) => {
                         record_committed(&writer_metrics, bytes, elapsed.as_millis()).await;
-                        println!("Committed checkpoint step {step}");
+                        eprintln!("Committed checkpoint step {step}");
                         CheckpointJobStatus::Committed
                     }
                     Ok((Err(error), _, _)) => {
@@ -168,6 +253,7 @@ impl AsyncCheckpointRuntime {
             writer_handle,
             statuses,
             metrics,
+            manager: reader_manager,
         }
     }
 

@@ -1,6 +1,9 @@
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 
@@ -11,24 +14,96 @@ pub struct CheckpointManager {
     checkpoint_dir: PathBuf,
     /// Prefix used in metadata.json path fields (e.g. "checkpoints").
     path_prefix: String,
+    /// Artificial delay before each save, for simulating slow storage in benchmarks.
+    write_delay_ms: u64,
 }
 
 impl CheckpointManager {
     pub fn new(checkpoint_dir: PathBuf, path_prefix: impl Into<String>) -> Self {
+        Self::new_with_delay(checkpoint_dir, path_prefix, 0)
+    }
+
+    pub fn new_with_delay(
+        checkpoint_dir: PathBuf,
+        path_prefix: impl Into<String>,
+        write_delay_ms: u64,
+    ) -> Self {
         Self {
             checkpoint_dir,
             path_prefix: path_prefix.into(),
+            write_delay_ms,
         }
+    }
+
+    pub fn write_delay_ms(&self) -> u64 {
+        self.write_delay_ms
     }
 
     /// Write a checkpoint atomically and update metadata.json.
     pub fn save_checkpoint(&self, step: u64, data: &[u8]) -> Result<()> {
+        self.persist_checkpoint_bytes(step, data)?;
+        self.write_metadata(step)?;
+        eprintln!("Wrote metadata.json");
+        Ok(())
+    }
+
+    /// Write a worker-aware checkpoint using `global_step` for the on-disk filename.
+    pub fn save_worker_checkpoint(
+        &self,
+        worker_id: u64,
+        local_step: u64,
+        global_step: u64,
+        data: &[u8],
+    ) -> Result<()> {
+        self.persist_checkpoint_bytes(global_step, data)?;
+        self.write_worker_metadata(global_step, worker_id, local_step)?;
+        eprintln!("Wrote metadata.json");
+        Ok(())
+    }
+
+    /// Return the committed checkpoint with the highest `local_step` for one worker.
+    pub fn latest_checkpoint_for_worker(
+        &self,
+        worker_id: u64,
+    ) -> Result<Option<CheckpointEntry>> {
+        let Some(metadata) = self.read_metadata()? else {
+            return Ok(None);
+        };
+
+        let latest = metadata
+            .checkpoints
+            .iter()
+            .filter(|entry| entry.worker_id == Some(worker_id))
+            .max_by_key(|entry| entry.local_step.unwrap_or(0));
+
+        Ok(latest.cloned())
+    }
+
+    /// Load bytes for the latest committed checkpoint belonging to one worker.
+    pub fn load_latest_for_worker(&self, worker_id: u64) -> Result<Option<Vec<u8>>> {
+        let Some(entry) = self.latest_checkpoint_for_worker(worker_id)? else {
+            return Ok(None);
+        };
+
+        let path = self.resolve_checkpoint_path(&entry.path);
+        let bytes = fs::read(&path).with_context(|| {
+            format!("failed to read checkpoint file {}", path.display())
+        })?;
+
+        Ok(Some(bytes))
+    }
+
+    fn persist_checkpoint_bytes(&self, step: u64, data: &[u8]) -> Result<()> {
+        if self.write_delay_ms > 0 {
+            thread::sleep(Duration::from_millis(self.write_delay_ms));
+        }
+
         self.ensure_checkpoint_dir()?;
 
         let temp_path = self.temp_checkpoint_path(step);
         let final_path = self.checkpoint_path(step);
 
-        println!("Writing temporary checkpoint");
+        eprintln!("Writing temporary checkpoint");
 
         let mut file = File::create(&temp_path)
             .with_context(|| format!("failed to create {}", temp_path.display()))?;
@@ -47,11 +122,7 @@ impl CheckpointManager {
             )
         })?;
 
-        println!("Committed checkpoint step {step}");
-
-        self.write_metadata(step)?;
-        println!("Wrote metadata.json");
-
+        eprintln!("Committed checkpoint step {step}");
         Ok(())
     }
 
@@ -128,6 +199,64 @@ impl CheckpointManager {
         Ok(deleted)
     }
 
+    /// Keep the latest `keep_last_per_worker` checkpoints for each worker (by `local_step`).
+    ///
+    /// Legacy entries without `worker_id` are left unchanged. Returns the number of
+    /// checkpoint files removed from disk.
+    pub fn prune_checkpoints_per_worker(&self, keep_last_per_worker: usize) -> Result<usize> {
+        let Some(metadata) = self.read_metadata()? else {
+            return Ok(0);
+        };
+
+        let mut legacy = Vec::new();
+        let mut by_worker: HashMap<u64, Vec<CheckpointEntry>> = HashMap::new();
+
+        for entry in &metadata.checkpoints {
+            match entry.worker_id {
+                Some(worker_id) => {
+                    by_worker.entry(worker_id).or_default().push(entry.clone());
+                }
+                None => legacy.push(entry.clone()),
+            }
+        }
+
+        let mut retained = legacy;
+        for mut entries in by_worker.into_values() {
+            entries.sort_by_key(|entry| entry.local_step.unwrap_or(0));
+            let retain_from = entries.len().saturating_sub(keep_last_per_worker);
+            retained.extend(entries.split_off(retain_from));
+        }
+
+        retained.sort_by_key(|entry| entry.step);
+        let retained_steps: std::collections::HashSet<u64> =
+            retained.iter().map(|entry| entry.step).collect();
+
+        let mut deleted = 0;
+        for entry in &metadata.checkpoints {
+            if retained_steps.contains(&entry.step) {
+                continue;
+            }
+
+            let path = self.resolve_checkpoint_path(&entry.path);
+            if !path.exists() {
+                continue;
+            }
+
+            if fs::remove_file(&path).is_ok() {
+                deleted += 1;
+            }
+        }
+
+        let latest_step = retained.iter().map(|entry| entry.step).max().unwrap_or(0);
+        let pruned = CheckpointMetadata {
+            latest_step,
+            checkpoints: retained,
+        };
+        self.persist_metadata(&pruned)?;
+
+        Ok(deleted)
+    }
+
     fn read_metadata(&self) -> Result<Option<CheckpointMetadata>> {
         let metadata_path = self.checkpoint_dir.join("metadata.json");
         if !metadata_path.exists() {
@@ -170,23 +299,40 @@ impl CheckpointManager {
                 self.checkpoint_dir.display()
             )
         })?;
-        println!("Created checkpoints directory");
+        eprintln!("Created checkpoints directory");
         Ok(())
     }
 
     fn write_metadata(&self, step: u64) -> Result<()> {
-        let relative_path = format!(
-            "{}/step_{step:04}.ckpt",
-            self.path_prefix.trim_end_matches('/')
-        );
-
+        let relative_path = self.relative_checkpoint_path(step);
         let mut metadata = self
             .read_metadata()?
             .unwrap_or_else(CheckpointMetadata::empty);
         metadata.record_commit(step, relative_path);
         self.persist_metadata(&metadata)?;
-
         Ok(())
+    }
+
+    fn write_worker_metadata(
+        &self,
+        global_step: u64,
+        worker_id: u64,
+        local_step: u64,
+    ) -> Result<()> {
+        let relative_path = self.relative_checkpoint_path(global_step);
+        let mut metadata = self
+            .read_metadata()?
+            .unwrap_or_else(CheckpointMetadata::empty);
+        metadata.record_worker_commit(global_step, relative_path, worker_id, local_step);
+        self.persist_metadata(&metadata)?;
+        Ok(())
+    }
+
+    fn relative_checkpoint_path(&self, step: u64) -> String {
+        format!(
+            "{}/step_{step:04}.ckpt",
+            self.path_prefix.trim_end_matches('/')
+        )
     }
 
     fn persist_metadata(&self, metadata: &CheckpointMetadata) -> Result<()> {
@@ -236,6 +382,99 @@ mod tests {
 
     fn manager_in_temp_dir(dir: &Path) -> CheckpointManager {
         CheckpointManager::new(dir.to_path_buf(), "checkpoints")
+    }
+
+    #[test]
+    fn new_defaults_delay_to_zero() {
+        let temp = tempfile::tempdir().unwrap();
+        let manager = manager_in_temp_dir(temp.path());
+        assert_eq!(manager.write_delay_ms(), 0);
+    }
+
+    #[test]
+    fn new_with_delay_stores_delay() {
+        let temp = tempfile::tempdir().unwrap();
+        let manager =
+            CheckpointManager::new_with_delay(temp.path().to_path_buf(), "checkpoints", 500);
+        assert_eq!(manager.write_delay_ms(), 500);
+    }
+
+    #[test]
+    fn save_with_delay_takes_at_least_delay_duration() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let delay_ms = 100;
+        let manager =
+            CheckpointManager::new_with_delay(temp.path().to_path_buf(), "checkpoints", delay_ms);
+
+        let started = std::time::Instant::now();
+        manager.save_checkpoint(1, b"delayed")?;
+        let elapsed = started.elapsed();
+
+        assert!(
+            elapsed >= Duration::from_millis(delay_ms),
+            "expected at least {delay_ms} ms, got {} ms",
+            elapsed.as_millis()
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn save_worker_checkpoint_writes_worker_metadata() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let manager = manager_in_temp_dir(temp.path());
+
+        manager.save_worker_checkpoint(1, 10, 1_000_010, b"worker one")?;
+
+        let metadata = manager
+            .read_metadata()?
+            .expect("expected metadata after worker save");
+        let entry = metadata
+            .checkpoints
+            .iter()
+            .find(|e| e.step == 1_000_010)
+            .expect("expected worker checkpoint entry");
+
+        assert_eq!(entry.worker_id, Some(1));
+        assert_eq!(entry.local_step, Some(10));
+        assert_eq!(entry.path, "checkpoints/step_1000010.ckpt");
+
+        Ok(())
+    }
+
+    #[test]
+    fn latest_checkpoint_for_worker_returns_highest_local_step() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let manager = manager_in_temp_dir(temp.path());
+
+        manager.save_worker_checkpoint(2, 5, 2_000_005, b"step five")?;
+        manager.save_worker_checkpoint(2, 10, 2_000_010, b"step ten")?;
+        manager.save_worker_checkpoint(1, 99, 1_000_099, b"other worker")?;
+
+        let latest = manager
+            .latest_checkpoint_for_worker(2)?
+            .expect("expected worker 2 checkpoint");
+
+        assert_eq!(latest.local_step, Some(10));
+        assert_eq!(latest.step, 2_000_010);
+
+        Ok(())
+    }
+
+    #[test]
+    fn load_latest_for_worker_returns_correct_bytes() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let manager = manager_in_temp_dir(temp.path());
+
+        manager.save_worker_checkpoint(3, 7, 3_000_007, b"worker three")?;
+
+        let bytes = manager
+            .load_latest_for_worker(3)?
+            .expect("expected checkpoint bytes");
+
+        assert_eq!(bytes, b"worker three");
+
+        Ok(())
     }
 
     #[test]
@@ -417,6 +656,100 @@ mod tests {
         let deleted = manager.prune_checkpoints(2)?;
         assert_eq!(deleted, 0);
         assert!(!temp.path().join("metadata.json").exists());
+
+        Ok(())
+    }
+
+    #[test]
+    fn prune_checkpoints_per_worker_keeps_one_per_worker() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let manager = manager_in_temp_dir(temp.path());
+
+        for local_step in [5, 10, 15] {
+            manager.save_worker_checkpoint(0, local_step, local_step, b"worker zero")?;
+            manager.save_worker_checkpoint(
+                1,
+                local_step,
+                1_000_000 + local_step,
+                b"worker one",
+            )?;
+        }
+
+        let deleted = manager.prune_checkpoints_per_worker(1)?;
+        assert_eq!(deleted, 4);
+
+        assert!(!manager.checkpoint_path(5).exists());
+        assert!(!manager.checkpoint_path(10).exists());
+        assert!(manager.checkpoint_path(15).is_file());
+        assert!(!manager.checkpoint_path(1_000_005).exists());
+        assert!(!manager.checkpoint_path(1_000_010).exists());
+        assert!(manager.checkpoint_path(1_000_015).is_file());
+
+        let checkpoints = manager.list_checkpoints()?;
+        assert_eq!(checkpoints.len(), 2);
+        assert_eq!(
+            checkpoints
+                .iter()
+                .map(|entry| entry.local_step)
+                .collect::<Vec<_>>(),
+            vec![Some(15), Some(15)]
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn prune_checkpoints_per_worker_keeps_two_per_worker() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let manager = manager_in_temp_dir(temp.path());
+
+        for local_step in [5, 10, 15] {
+            manager.save_worker_checkpoint(0, local_step, local_step, b"worker zero")?;
+            manager.save_worker_checkpoint(
+                1,
+                local_step,
+                1_000_000 + local_step,
+                b"worker one",
+            )?;
+        }
+
+        let deleted = manager.prune_checkpoints_per_worker(2)?;
+        assert_eq!(deleted, 2);
+
+        assert!(!manager.checkpoint_path(5).exists());
+        assert!(manager.checkpoint_path(10).is_file());
+        assert!(manager.checkpoint_path(15).is_file());
+        assert!(!manager.checkpoint_path(1_000_005).exists());
+        assert!(manager.checkpoint_path(1_000_010).is_file());
+        assert!(manager.checkpoint_path(1_000_015).is_file());
+
+        let checkpoints = manager.list_checkpoints()?;
+        assert_eq!(checkpoints.len(), 4);
+
+        Ok(())
+    }
+
+    #[test]
+    fn prune_checkpoints_per_worker_preserves_legacy_entries() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let manager = manager_in_temp_dir(temp.path());
+
+        manager.save_checkpoint(99, b"legacy global")?;
+        for local_step in [5, 10, 15] {
+            manager.save_worker_checkpoint(0, local_step, local_step, b"worker zero")?;
+        }
+
+        let deleted = manager.prune_checkpoints_per_worker(1)?;
+        assert_eq!(deleted, 2);
+
+        assert!(manager.checkpoint_path(99).exists());
+        assert!(!manager.checkpoint_path(5).exists());
+        assert!(!manager.checkpoint_path(10).exists());
+        assert!(manager.checkpoint_path(15).is_file());
+
+        let checkpoints = manager.list_checkpoints()?;
+        assert_eq!(checkpoints.len(), 2);
+        assert!(checkpoints.iter().any(|entry| entry.step == 99 && entry.worker_id.is_none()));
 
         Ok(())
     }
