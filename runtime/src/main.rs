@@ -73,6 +73,13 @@ enum Command {
         #[arg(long, default_value_t = 0)]
         write_delay_ms: u64,
     },
+    /// Demonstrate failure injection and recovery (in-memory; not production).
+    #[command(name = "failure-demo")]
+    FailureDemo {
+        /// Write a summary file in addition to stdout.
+        #[arg(long)]
+        summary: Option<PathBuf>,
+    },
     /// Run a gRPC checkpoint service (optional transport alongside JSON stdin/stdout).
     #[command(name = "serve-grpc")]
     ServeGrpc {
@@ -86,12 +93,23 @@ enum Command {
     },
 }
 
+fn default_failure_demo_summary_path() -> PathBuf {
+    repo_root()
+        .join("benchmarks")
+        .join("output")
+        .join("failure_demo_summary.txt")
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let manager = checkpoint_manager();
 
     match cli.command {
+        Command::FailureDemo { summary } => {
+            let summary_path = summary.or_else(|| Some(default_failure_demo_summary_path()));
+            runtime::failure_demo::run_failure_demo_and_report(summary_path)?;
+        }
         Command::Save { step, data } => {
+            let manager = checkpoint_manager();
             let bytes = match data {
                 Some(payload) => payload.into_bytes(),
                 None => format!("fake checkpoint data for step {step}").into_bytes(),
@@ -99,6 +117,7 @@ fn main() -> Result<()> {
             manager.save_checkpoint(step, &bytes)?;
         }
         Command::SaveFromFile { step, path } => {
+            let manager = checkpoint_manager();
             let path = path.to_string_lossy().to_string();
             let bytes = runtime::service::read_checkpoint_file(&path)
                 .map_err(|error| anyhow::anyhow!(error))?;
@@ -106,6 +125,7 @@ fn main() -> Result<()> {
             println!("saved checkpoint step {step} from file");
         }
         Command::List => {
+            let manager = checkpoint_manager();
             let checkpoints = manager.list_checkpoints()?;
             if checkpoints.is_empty() {
                 println!("No checkpoints found.");
@@ -119,6 +139,7 @@ fn main() -> Result<()> {
             }
         }
         Command::Latest => {
+            let manager = checkpoint_manager();
             match manager.latest_checkpoint()? {
                 Some(entry) => {
                     println!("latest step: {}", entry.step);
@@ -127,11 +148,15 @@ fn main() -> Result<()> {
                 None => println!("No latest checkpoint found."),
             }
         }
-        Command::LoadLatest => match manager.load_latest()? {
-            Some(bytes) => println!("{}", String::from_utf8_lossy(&bytes)),
-            None => println!("No latest checkpoint found."),
-        },
+        Command::LoadLatest => {
+            let manager = checkpoint_manager();
+            match manager.load_latest()? {
+                Some(bytes) => println!("{}", String::from_utf8_lossy(&bytes)),
+                None => println!("No latest checkpoint found."),
+            }
+        }
         Command::Prune { keep_last } => {
+            let manager = checkpoint_manager();
             let deleted = manager.prune_checkpoints(keep_last)?;
             println!("Deleted {deleted} checkpoint file(s).");
         }

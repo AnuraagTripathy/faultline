@@ -6,6 +6,8 @@ package faultline;
 service FaultlineService {
   rpc SaveFromFile(SaveFromFileRequest) returns (GenericResponse);
   rpc EnqueueWorkerFromFile(EnqueueWorkerFromFileRequest) returns (GenericResponse);
+  rpc EnqueueWorkerBytes(EnqueueWorkerBytesRequest) returns (EnqueueResponse);
+  rpc EnqueueWorkerBytesStream(stream CheckpointChunk) returns (EnqueueResponse);
   rpc LatestForWorker(LatestForWorkerRequest) returns (LatestForWorkerResponse);
   rpc Status(StatusRequest) returns (StatusResponse);
   rpc Metrics(MetricsRequest) returns (MetricsResponse);
@@ -22,6 +24,28 @@ message EnqueueWorkerFromFileRequest {
   uint64 local_step = 2;
   uint64 step = 3;
   string path = 4;
+}
+
+message EnqueueWorkerBytesRequest {
+  uint64 worker_id = 1;
+  uint64 local_step = 2;
+  uint64 step = 3;
+  bytes data = 4;
+}
+
+message EnqueueResponse {
+  bool ok = 1;
+  string message = 2;
+  string error = 3;
+}
+
+message CheckpointChunk {
+  uint64 worker_id = 1;
+  uint64 local_step = 2;
+  uint64 step = 3;
+  uint64 chunk_index = 4;
+  bytes data = 5;
+  bool is_last = 6;
 }
 
 message LatestForWorkerRequest {

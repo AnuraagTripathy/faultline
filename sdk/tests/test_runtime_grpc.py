@@ -5,9 +5,15 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from faultline.grpc_client import GrpcAsyncRuntime, build_serve_grpc_command
+from faultline.grpc_client import (
+    GrpcAsyncRuntime,
+    build_serve_grpc_command,
+    checkpoint_chunk_count,
+    iter_checkpoint_chunks,
+)
 from faultline.grpc.faultline_pb2 import (
     CheckpointEntry,
+    EnqueueWorkerBytesRequest,
     EnqueueWorkerFromFileRequest,
     LatestForWorkerResponse,
     MetricsResponse,
@@ -19,6 +25,56 @@ class TestRuntimeGrpc(unittest.TestCase):
     def setUp(self) -> None:
         self.runtime = GrpcAsyncRuntime(runtime_dir="runtime", start_server=False)
         self.runtime._stub = MagicMock()
+
+    def test_checkpoint_chunk_count(self) -> None:
+        self.assertEqual(checkpoint_chunk_count(0, 1024), 1)
+        self.assertEqual(checkpoint_chunk_count(1, 1024), 1)
+        self.assertEqual(checkpoint_chunk_count(1025, 1024), 2)
+
+    def test_iter_checkpoint_chunks_emits_expected_count(self) -> None:
+        data = b"x" * 5000
+        chunks = list(iter_checkpoint_chunks(1, 2, data, chunk_size=2000))
+        self.assertEqual(len(chunks), 3)
+        self.assertEqual(chunks[0].chunk_index, 0)
+        self.assertFalse(chunks[0].is_last)
+        self.assertTrue(chunks[-1].is_last)
+        self.assertEqual(b"".join(chunk.data for chunk in chunks), data)
+
+    def test_enqueue_worker_stream_calls_stub(self) -> None:
+        response = MagicMock()
+        response.ok = True
+        response.message = "streamed"
+        self.runtime._stub.EnqueueWorkerBytesStream.return_value = response
+
+        payload = {"value": list(range(100))}
+        message = self.runtime.enqueue_worker_pickle_checkpoint_stream(
+            3, 7, payload, chunk_size=64
+        )
+
+        self.assertEqual(message, "streamed")
+        chunks = list(self.runtime._stub.EnqueueWorkerBytesStream.call_args.args[0])
+        self.assertGreater(len(chunks), 1)
+        self.assertEqual(chunks[0].worker_id, 3)
+        self.assertEqual(chunks[0].local_step, 7)
+        self.assertEqual(chunks[0].step, 3_000_007)
+        self.assertTrue(chunks[-1].is_last)
+
+    def test_enqueue_worker_bytes_builds_request(self) -> None:
+        response = MagicMock()
+        response.ok = True
+        response.message = "queued bytes"
+        self.runtime._stub.EnqueueWorkerBytes.return_value = response
+
+        payload = {"tensor": [1, 2, 3]}
+        message = self.runtime.enqueue_worker_pickle_checkpoint_bytes(2, 5, payload)
+
+        self.assertEqual(message, "queued bytes")
+        request = self.runtime._stub.EnqueueWorkerBytes.call_args.args[0]
+        self.assertIsInstance(request, EnqueueWorkerBytesRequest)
+        self.assertEqual(request.worker_id, 2)
+        self.assertEqual(request.local_step, 5)
+        self.assertEqual(request.step, 2_000_005)
+        self.assertTrue(len(request.data) > 0)
 
     def test_enqueue_worker_builds_request(self) -> None:
         response = MagicMock()

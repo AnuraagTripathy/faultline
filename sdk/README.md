@@ -1,14 +1,10 @@
 # Faultline Python SDK
 
-**Start with the project overview:** [../README.md](../README.md) (problem statement, architecture, demos, benchmarks, roadmap).
+**Start here:** [../README.md](../README.md) (overview, benchmark highlights, demo path).
 
-This package is a subprocess-based SDK. It calls the Rust `runtime` crate via:
+**Operations:** [../docs/RUNBOOK.md](../docs/RUNBOOK.md) · **Design:** [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md)
 
-```text
-cargo run -- <command>
-```
-
-Service modes use newline-delimited JSON on stdin/stdout. A future version will add gRPC (or in-process bindings) to the same Rust runtime.
+This package talks to the Rust `runtime` crate via subprocess (`cargo run` or a release binary) and optional **gRPC** (`GrpcAsyncRuntime` + `serve-grpc`).
 
 ## Requirements
 
@@ -219,7 +215,24 @@ with GrpcAsyncRuntime(
     runtime.metrics()
 ```
 
-Example: `python sdk/examples/grpc_worker_usage.py`  
+**Bytes transport (Version 8.2)** — send pickled payload inline (no temp file):
+
+```python
+runtime.enqueue_worker_pickle_checkpoint_bytes(worker_id, local_step, payload)
+```
+
+**Streaming bytes (Version 8.3)** — chunk large payloads over client streaming:
+
+```python
+runtime.enqueue_worker_pickle_checkpoint_stream(
+    worker_id, local_step, payload, chunk_size=256 * 1024
+)
+```
+
+Example: `python sdk/examples/grpc_bytes_usage.py`  
+Example: `python sdk/examples/grpc_stream_usage.py`  
+Benchmark: `python sdk/benchmarks/grpc_bytes_benchmark.py` (file path vs bytes)  
+Benchmark: `python sdk/benchmarks/grpc_stream_benchmark.py` (unary vs streaming)  
 Benchmark: `python sdk/benchmarks/grpc_checkpoint_benchmark.py` (JSON vs gRPC cargo vs gRPC release)
 
 Regenerate stubs after editing `proto/faultline.proto`:

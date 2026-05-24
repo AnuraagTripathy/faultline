@@ -9,11 +9,13 @@ import tempfile
 import time
 from pathlib import Path
 from types import TracebackType
-from typing import Any
+from typing import Any, Iterator
 
 import grpc
 
 from faultline.grpc.faultline_pb2 import (
+    CheckpointChunk,
+    EnqueueWorkerBytesRequest,
     EnqueueWorkerFromFileRequest,
     LatestForWorkerRequest,
     MetricsRequest,
@@ -52,6 +54,47 @@ def default_release_binary_path(runtime_dir: str | Path) -> Path:
     base = Path(runtime_dir) / "target" / "release"
     name = "runtime.exe" if os.name == "nt" else "runtime"
     return base / name
+
+
+def checkpoint_chunk_count(payload_size: int, chunk_size: int) -> int:
+    """Number of CheckpointChunk messages needed for a payload of given size."""
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
+    if payload_size == 0:
+        return 1
+    return (payload_size + chunk_size - 1) // chunk_size
+
+
+def iter_checkpoint_chunks(
+    worker_id: int,
+    local_step: int,
+    data: bytes,
+    chunk_size: int,
+) -> Iterator[CheckpointChunk]:
+    """Yield CheckpointChunk messages for a client-streaming enqueue."""
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
+
+    global_step = global_step_for_worker(worker_id, local_step)
+    offset = 0
+    chunk_index = 0
+
+    while True:
+        end = min(offset + chunk_size, len(data))
+        chunk = data[offset:end]
+        is_last = end >= len(data)
+        yield CheckpointChunk(
+            worker_id=worker_id,
+            local_step=local_step,
+            step=global_step,
+            chunk_index=chunk_index,
+            data=chunk,
+            is_last=is_last,
+        )
+        if is_last:
+            break
+        offset = end
+        chunk_index += 1
 
 
 def _require_ok(response: Any, field: str = "error") -> None:
@@ -170,6 +213,41 @@ class GrpcAsyncRuntime:
         finally:
             if temp_path is not None:
                 Path(temp_path).unlink(missing_ok=True)
+
+    def enqueue_worker_pickle_checkpoint_bytes(
+        self, worker_id: int, local_step: int, payload: object
+    ) -> str:
+        data = pickle.dumps(payload)
+        global_step = global_step_for_worker(worker_id, local_step)
+        response = self._stub_or_raise().EnqueueWorkerBytes(
+            EnqueueWorkerBytesRequest(
+                worker_id=worker_id,
+                local_step=local_step,
+                step=global_step,
+                data=data,
+            )
+        )
+        _require_ok(response)
+        return (
+            response.message
+            or f"queued worker {worker_id} checkpoint local_step {local_step}"
+        )
+
+    def enqueue_worker_pickle_checkpoint_stream(
+        self,
+        worker_id: int,
+        local_step: int,
+        payload: object,
+        chunk_size: int = 256 * 1024,
+    ) -> str:
+        data = pickle.dumps(payload)
+        chunks = iter_checkpoint_chunks(worker_id, local_step, data, chunk_size)
+        response = self._stub_or_raise().EnqueueWorkerBytesStream(chunks)
+        _require_ok(response)
+        return (
+            response.message
+            or f"queued worker {worker_id} checkpoint local_step {local_step} (stream)"
+        )
 
     def latest_checkpoint_for_worker(self, worker_id: int) -> dict[str, Any] | None:
         response = self._stub_or_raise().LatestForWorker(

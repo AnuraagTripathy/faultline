@@ -45,6 +45,16 @@ class FaultlineServiceStub(object):
                 request_serializer=faultline__pb2.EnqueueWorkerFromFileRequest.SerializeToString,
                 response_deserializer=faultline__pb2.GenericResponse.FromString,
                 _registered_method=True)
+        self.EnqueueWorkerBytes = channel.unary_unary(
+                '/faultline.FaultlineService/EnqueueWorkerBytes',
+                request_serializer=faultline__pb2.EnqueueWorkerBytesRequest.SerializeToString,
+                response_deserializer=faultline__pb2.EnqueueResponse.FromString,
+                _registered_method=True)
+        self.EnqueueWorkerBytesStream = channel.stream_unary(
+                '/faultline.FaultlineService/EnqueueWorkerBytesStream',
+                request_serializer=faultline__pb2.CheckpointChunk.SerializeToString,
+                response_deserializer=faultline__pb2.EnqueueResponse.FromString,
+                _registered_method=True)
         self.LatestForWorker = channel.unary_unary(
                 '/faultline.FaultlineService/LatestForWorker',
                 request_serializer=faultline__pb2.LatestForWorkerRequest.SerializeToString,
@@ -78,6 +88,18 @@ class FaultlineServiceServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def EnqueueWorkerFromFile(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def EnqueueWorkerBytes(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def EnqueueWorkerBytesStream(self, request_iterator, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -119,6 +141,16 @@ def add_FaultlineServiceServicer_to_server(servicer, server):
                     servicer.EnqueueWorkerFromFile,
                     request_deserializer=faultline__pb2.EnqueueWorkerFromFileRequest.FromString,
                     response_serializer=faultline__pb2.GenericResponse.SerializeToString,
+            ),
+            'EnqueueWorkerBytes': grpc.unary_unary_rpc_method_handler(
+                    servicer.EnqueueWorkerBytes,
+                    request_deserializer=faultline__pb2.EnqueueWorkerBytesRequest.FromString,
+                    response_serializer=faultline__pb2.EnqueueResponse.SerializeToString,
+            ),
+            'EnqueueWorkerBytesStream': grpc.stream_unary_rpc_method_handler(
+                    servicer.EnqueueWorkerBytesStream,
+                    request_deserializer=faultline__pb2.CheckpointChunk.FromString,
+                    response_serializer=faultline__pb2.EnqueueResponse.SerializeToString,
             ),
             'LatestForWorker': grpc.unary_unary_rpc_method_handler(
                     servicer.LatestForWorker,
@@ -196,6 +228,60 @@ class FaultlineService(object):
             '/faultline.FaultlineService/EnqueueWorkerFromFile',
             faultline__pb2.EnqueueWorkerFromFileRequest.SerializeToString,
             faultline__pb2.GenericResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def EnqueueWorkerBytes(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/faultline.FaultlineService/EnqueueWorkerBytes',
+            faultline__pb2.EnqueueWorkerBytesRequest.SerializeToString,
+            faultline__pb2.EnqueueResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def EnqueueWorkerBytesStream(request_iterator,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.stream_unary(
+            request_iterator,
+            target,
+            '/faultline.FaultlineService/EnqueueWorkerBytesStream',
+            faultline__pb2.CheckpointChunk.SerializeToString,
+            faultline__pb2.EnqueueResponse.FromString,
             options,
             channel_credentials,
             insecure,

@@ -1,20 +1,17 @@
 use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 
 use crate::metadata::{CheckpointEntry, CheckpointMetadata};
+use crate::storage::{LocalStorageBackend, StorageBackend};
 
 /// Manages safe checkpoint writes and metadata updates for one directory.
 pub struct CheckpointManager {
-    checkpoint_dir: PathBuf,
-    /// Prefix used in metadata.json path fields (e.g. "checkpoints").
-    path_prefix: String,
-    /// Artificial delay before each save, for simulating slow storage in benchmarks.
+    storage: Arc<dyn StorageBackend>,
     write_delay_ms: u64,
 }
 
@@ -28,9 +25,13 @@ impl CheckpointManager {
         path_prefix: impl Into<String>,
         write_delay_ms: u64,
     ) -> Self {
+        let storage = Arc::new(LocalStorageBackend::new(checkpoint_dir, path_prefix));
+        Self::with_storage(storage, write_delay_ms)
+    }
+
+    pub fn with_storage(storage: Arc<dyn StorageBackend>, write_delay_ms: u64) -> Self {
         Self {
-            checkpoint_dir,
-            path_prefix: path_prefix.into(),
+            storage,
             write_delay_ms,
         }
     }
@@ -41,8 +42,8 @@ impl CheckpointManager {
 
     /// Write a checkpoint atomically and update metadata.json.
     pub fn save_checkpoint(&self, step: u64, data: &[u8]) -> Result<()> {
-        self.persist_checkpoint_bytes(step, data)?;
-        self.write_metadata(step)?;
+        let relative_path = self.persist_checkpoint_bytes(step, data)?;
+        self.write_metadata(step, &relative_path)?;
         eprintln!("Wrote metadata.json");
         Ok(())
     }
@@ -55,8 +56,8 @@ impl CheckpointManager {
         global_step: u64,
         data: &[u8],
     ) -> Result<()> {
-        self.persist_checkpoint_bytes(global_step, data)?;
-        self.write_worker_metadata(global_step, worker_id, local_step)?;
+        let relative_path = self.persist_checkpoint_bytes(global_step, data)?;
+        self.write_worker_metadata(global_step, worker_id, local_step, &relative_path)?;
         eprintln!("Wrote metadata.json");
         Ok(())
     }
@@ -85,45 +86,20 @@ impl CheckpointManager {
             return Ok(None);
         };
 
-        let path = self.resolve_checkpoint_path(&entry.path);
-        let bytes = fs::read(&path).with_context(|| {
-            format!("failed to read checkpoint file {}", path.display())
-        })?;
-
+        let bytes = self.storage.read(&entry.path)?;
         Ok(Some(bytes))
     }
 
-    fn persist_checkpoint_bytes(&self, step: u64, data: &[u8]) -> Result<()> {
+    fn persist_checkpoint_bytes(&self, step: u64, data: &[u8]) -> Result<String> {
         if self.write_delay_ms > 0 {
             thread::sleep(Duration::from_millis(self.write_delay_ms));
         }
 
-        self.ensure_checkpoint_dir()?;
-
-        let temp_path = self.temp_checkpoint_path(step);
-        let final_path = self.checkpoint_path(step);
-
-        eprintln!("Writing temporary checkpoint");
-
-        let mut file = File::create(&temp_path)
-            .with_context(|| format!("failed to create {}", temp_path.display()))?;
-        file.write_all(data)
-            .with_context(|| format!("failed to write {}", temp_path.display()))?;
-        file.flush()
-            .with_context(|| format!("failed to flush {}", temp_path.display()))?;
-        file.sync_all()
-            .with_context(|| format!("failed to sync {}", temp_path.display()))?;
-
-        fs::rename(&temp_path, &final_path).with_context(|| {
-            format!(
-                "failed to rename {} to {}",
-                temp_path.display(),
-                final_path.display()
-            )
-        })?;
-
-        eprintln!("Committed checkpoint step {step}");
-        Ok(())
+        let file_name = Self::checkpoint_file_name(step);
+        self.storage.write_atomic(&file_name, data).map(|path| {
+            eprintln!("Committed checkpoint step {step}");
+            path
+        })
     }
 
     /// Return all committed checkpoints from metadata.json.
@@ -154,11 +130,7 @@ impl CheckpointManager {
             return Ok(None);
         };
 
-        let path = self.resolve_checkpoint_path(&entry.path);
-        let bytes = fs::read(&path).with_context(|| {
-            format!("failed to read checkpoint file {}", path.display())
-        })?;
-
+        let bytes = self.storage.read(&entry.path)?;
         Ok(Some(bytes))
     }
 
@@ -180,12 +152,11 @@ impl CheckpointManager {
                 continue;
             }
 
-            let path = self.resolve_checkpoint_path(&entry.path);
-            if !path.exists() {
+            if !self.storage.exists(&entry.path) {
                 continue;
             }
 
-            if fs::remove_file(&path).is_ok() {
+            if self.storage.delete(&entry.path)? {
                 deleted += 1;
             }
         }
@@ -237,12 +208,11 @@ impl CheckpointManager {
                 continue;
             }
 
-            let path = self.resolve_checkpoint_path(&entry.path);
-            if !path.exists() {
+            if !self.storage.exists(&entry.path) {
                 continue;
             }
 
-            if fs::remove_file(&path).is_ok() {
+            if self.storage.delete(&entry.path)? {
                 deleted += 1;
             }
         }
@@ -258,57 +228,19 @@ impl CheckpointManager {
     }
 
     fn read_metadata(&self) -> Result<Option<CheckpointMetadata>> {
-        let metadata_path = self.checkpoint_dir.join("metadata.json");
-        if !metadata_path.exists() {
+        let Some(bytes) = self.storage.read_metadata()? else {
             return Ok(None);
-        }
+        };
 
-        let json = fs::read_to_string(&metadata_path).with_context(|| {
-            format!(
-                "failed to read metadata file {}",
-                metadata_path.display()
-            )
-        })?;
-        let metadata = serde_json::from_str(&json).with_context(|| {
-            format!(
-                "failed to parse metadata file {}",
-                metadata_path.display()
-            )
-        })?;
-
+        let metadata = serde_json::from_slice(&bytes).context("failed to parse metadata.json")?;
         Ok(Some(metadata))
     }
 
-    /// Map a metadata path like `checkpoints/step_0001.ckpt` to a real file
-    /// inside `checkpoint_dir`. Tests use temp dirs, so we only need the file name.
-    fn resolve_checkpoint_path(&self, metadata_path: &str) -> PathBuf {
-        let file_name = Path::new(metadata_path)
-            .file_name()
-            .expect("checkpoint path in metadata should include a file name");
-        self.checkpoint_dir.join(file_name)
-    }
-
-    fn ensure_checkpoint_dir(&self) -> Result<()> {
-        if self.checkpoint_dir.exists() {
-            return Ok(());
-        }
-
-        fs::create_dir_all(&self.checkpoint_dir).with_context(|| {
-            format!(
-                "failed to create checkpoint directory {}",
-                self.checkpoint_dir.display()
-            )
-        })?;
-        eprintln!("Created checkpoints directory");
-        Ok(())
-    }
-
-    fn write_metadata(&self, step: u64) -> Result<()> {
-        let relative_path = self.relative_checkpoint_path(step);
+    fn write_metadata(&self, step: u64, relative_path: &str) -> Result<()> {
         let mut metadata = self
             .read_metadata()?
             .unwrap_or_else(CheckpointMetadata::empty);
-        metadata.record_commit(step, relative_path);
+        metadata.record_commit(step, relative_path.to_string());
         self.persist_metadata(&metadata)?;
         Ok(())
     }
@@ -318,34 +250,25 @@ impl CheckpointManager {
         global_step: u64,
         worker_id: u64,
         local_step: u64,
+        relative_path: &str,
     ) -> Result<()> {
-        let relative_path = self.relative_checkpoint_path(global_step);
         let mut metadata = self
             .read_metadata()?
             .unwrap_or_else(CheckpointMetadata::empty);
-        metadata.record_worker_commit(global_step, relative_path, worker_id, local_step);
+        metadata.record_worker_commit(
+            global_step,
+            relative_path.to_string(),
+            worker_id,
+            local_step,
+        );
         self.persist_metadata(&metadata)?;
         Ok(())
-    }
-
-    fn relative_checkpoint_path(&self, step: u64) -> String {
-        format!(
-            "{}/step_{step:04}.ckpt",
-            self.path_prefix.trim_end_matches('/')
-        )
     }
 
     fn persist_metadata(&self, metadata: &CheckpointMetadata) -> Result<()> {
         let json = serde_json::to_string_pretty(metadata)
             .context("failed to serialize metadata.json")?;
-        let metadata_path = self.checkpoint_dir.join("metadata.json");
-        fs::write(&metadata_path, json).with_context(|| {
-            format!(
-                "failed to write metadata file {}",
-                metadata_path.display()
-            )
-        })?;
-
+        self.storage.write_metadata(json.as_bytes())?;
         Ok(())
     }
 
@@ -364,24 +287,26 @@ impl CheckpointManager {
         sorted.split_off(retain_from)
     }
 
-    fn checkpoint_path(&self, step: u64) -> PathBuf {
-        self.checkpoint_dir
-            .join(format!("step_{step:04}.ckpt"))
-    }
-
-    fn temp_checkpoint_path(&self, step: u64) -> PathBuf {
-        self.checkpoint_dir
-            .join(format!("step_{step:04}.ckpt.tmp"))
+    fn checkpoint_file_name(step: u64) -> String {
+        format!("step_{step:04}.ckpt")
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     fn manager_in_temp_dir(dir: &Path) -> CheckpointManager {
         CheckpointManager::new(dir.to_path_buf(), "checkpoints")
+    }
+
+    fn checkpoint_path(dir: &Path, step: u64) -> PathBuf {
+        dir.join(format!("step_{step:04}.ckpt"))
+    }
+
+    fn temp_checkpoint_path(dir: &Path, step: u64) -> PathBuf {
+        dir.join(format!("step_{step:04}.ckpt.tmp"))
     }
 
     #[test]
@@ -484,7 +409,7 @@ mod tests {
 
         manager.save_checkpoint(1, b"test data")?;
 
-        assert!(manager.checkpoint_path(1).is_file());
+        assert!(checkpoint_path(temp.path(), 1).is_file());
         assert!(temp.path().join("metadata.json").is_file());
 
         Ok(())
@@ -497,7 +422,7 @@ mod tests {
 
         manager.save_checkpoint(1, b"test data")?;
 
-        let tmp_path = manager.temp_checkpoint_path(1);
+        let tmp_path = temp_checkpoint_path(temp.path(), 1);
         assert!(
             !tmp_path.exists(),
             "temporary file should be removed after commit: {}",
@@ -612,9 +537,9 @@ mod tests {
         let deleted = manager.prune_checkpoints(2)?;
         assert_eq!(deleted, 1);
 
-        assert!(!manager.checkpoint_path(1).exists());
-        assert!(manager.checkpoint_path(2).is_file());
-        assert!(manager.checkpoint_path(3).is_file());
+        assert!(!checkpoint_path(temp.path(), 1).exists());
+        assert!(checkpoint_path(temp.path(), 2).is_file());
+        assert!(checkpoint_path(temp.path(), 3).is_file());
 
         let checkpoints = manager.list_checkpoints()?;
         assert_eq!(checkpoints.len(), 2);
@@ -638,8 +563,8 @@ mod tests {
         let deleted = manager.prune_checkpoints(0)?;
         assert_eq!(deleted, 2);
 
-        assert!(!manager.checkpoint_path(1).exists());
-        assert!(!manager.checkpoint_path(2).exists());
+        assert!(!checkpoint_path(temp.path(), 1).exists());
+        assert!(!checkpoint_path(temp.path(), 2).exists());
 
         let metadata = manager.read_metadata()?.expect("metadata should exist");
         assert_eq!(metadata.latest_step, 0);
@@ -678,12 +603,12 @@ mod tests {
         let deleted = manager.prune_checkpoints_per_worker(1)?;
         assert_eq!(deleted, 4);
 
-        assert!(!manager.checkpoint_path(5).exists());
-        assert!(!manager.checkpoint_path(10).exists());
-        assert!(manager.checkpoint_path(15).is_file());
-        assert!(!manager.checkpoint_path(1_000_005).exists());
-        assert!(!manager.checkpoint_path(1_000_010).exists());
-        assert!(manager.checkpoint_path(1_000_015).is_file());
+        assert!(!checkpoint_path(temp.path(), 5).exists());
+        assert!(!checkpoint_path(temp.path(), 10).exists());
+        assert!(checkpoint_path(temp.path(), 15).is_file());
+        assert!(!checkpoint_path(temp.path(), 1_000_005).exists());
+        assert!(!checkpoint_path(temp.path(), 1_000_010).exists());
+        assert!(checkpoint_path(temp.path(), 1_000_015).is_file());
 
         let checkpoints = manager.list_checkpoints()?;
         assert_eq!(checkpoints.len(), 2);
@@ -716,12 +641,12 @@ mod tests {
         let deleted = manager.prune_checkpoints_per_worker(2)?;
         assert_eq!(deleted, 2);
 
-        assert!(!manager.checkpoint_path(5).exists());
-        assert!(manager.checkpoint_path(10).is_file());
-        assert!(manager.checkpoint_path(15).is_file());
-        assert!(!manager.checkpoint_path(1_000_005).exists());
-        assert!(manager.checkpoint_path(1_000_010).is_file());
-        assert!(manager.checkpoint_path(1_000_015).is_file());
+        assert!(!checkpoint_path(temp.path(), 5).exists());
+        assert!(checkpoint_path(temp.path(), 10).is_file());
+        assert!(checkpoint_path(temp.path(), 15).is_file());
+        assert!(!checkpoint_path(temp.path(), 1_000_005).exists());
+        assert!(checkpoint_path(temp.path(), 1_000_010).is_file());
+        assert!(checkpoint_path(temp.path(), 1_000_015).is_file());
 
         let checkpoints = manager.list_checkpoints()?;
         assert_eq!(checkpoints.len(), 4);
@@ -742,10 +667,10 @@ mod tests {
         let deleted = manager.prune_checkpoints_per_worker(1)?;
         assert_eq!(deleted, 2);
 
-        assert!(manager.checkpoint_path(99).exists());
-        assert!(!manager.checkpoint_path(5).exists());
-        assert!(!manager.checkpoint_path(10).exists());
-        assert!(manager.checkpoint_path(15).is_file());
+        assert!(checkpoint_path(temp.path(), 99).exists());
+        assert!(!checkpoint_path(temp.path(), 5).exists());
+        assert!(!checkpoint_path(temp.path(), 10).exists());
+        assert!(checkpoint_path(temp.path(), 15).is_file());
 
         let checkpoints = manager.list_checkpoints()?;
         assert_eq!(checkpoints.len(), 2);

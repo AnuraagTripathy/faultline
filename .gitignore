@@ -8,8 +8,7 @@ __pycache__/
 *.pyd
 .python-version
 
-# Conda
-.env
+# Conda / virtualenv
 .venv
 venv/
 env/
@@ -28,6 +27,8 @@ Thumbs.db
 *.log
 
 # Environment variables
+.env
+.env.*
 .env.local
 .env.*.local
 
