@@ -12,6 +12,24 @@ service FaultlineService {
   rpc Status(StatusRequest) returns (StatusResponse);
   rpc Metrics(MetricsRequest) returns (MetricsResponse);
   rpc Shutdown(ShutdownRequest) returns (GenericResponse);
+  rpc RegisterDataset(RegisterDatasetRequest) returns (RegisterDatasetResponse);
+  rpc ListDatasets(ListDatasetsRequest) returns (ListDatasetsResponse);
+  rpc ClaimNextShard(ClaimNextShardRequest) returns (ClaimNextShardResponse);
+  rpc CompleteShard(CompleteShardRequest) returns (CompleteShardResponse);
+  rpc ReleaseStaleShards(ReleaseStaleShardsRequest) returns (ReleaseStaleShardsResponse);
+  rpc GetRuntimeOverview(GetRuntimeOverviewRequest) returns (GetRuntimeOverviewResponse);
+  rpc ListWorkers(ListWorkersRequest) returns (ListWorkersResponse);
+  rpc ListShards(ListShardsRequest) returns (ListShardsResponse);
+  rpc ListEvents(ListEventsRequest) returns (ListEventsResponse);
+  rpc CreateRun(CreateRunRequest) returns (CreateRunResponse);
+  rpc ListRuns(ListRunsRequest) returns (ListRunsResponse);
+  rpc GetRun(GetRunRequest) returns (GetRunResponse);
+  rpc UpdateRunMetrics(UpdateRunMetricsRequest) returns (UpdateRunMetricsResponse);
+  rpc LogRunMetrics(LogRunMetricsRequest) returns (LogRunMetricsResponse);
+  rpc ListRunMetrics(ListRunMetricsRequest) returns (ListRunMetricsResponse);
+  rpc CompleteRun(CompleteRunRequest) returns (CompleteRunResponse);
+  rpc ListAlerts(ListAlertsRequest) returns (ListAlertsResponse);
+  rpc EvaluateAlerts(EvaluateAlertsRequest) returns (EvaluateAlertsResponse);
 }
 
 message SaveFromFileRequest {
@@ -96,4 +114,300 @@ message MetricsResponse {
   uint64 total_bytes_written = 7;
   uint64 total_write_time_ms = 8;
   optional double average_write_time_ms = 9;
+  uint64 total_retries = 10;
+  uint64 total_permanent_failures = 11;
+}
+
+message RegisterDatasetRequest {
+  string name = 1;
+  uint64 total_samples = 2;
+  uint64 shard_size = 3;
+}
+
+message DatasetMetadataMsg {
+  string name = 1;
+  uint64 total_samples = 2;
+  uint64 shard_size = 3;
+  uint64 total_shards = 4;
+}
+
+message RegisterDatasetResponse {
+  bool ok = 1;
+  string error = 2;
+  DatasetMetadataMsg dataset = 3;
+}
+
+message ListDatasetsRequest {}
+
+message ListDatasetsResponse {
+  bool ok = 1;
+  string error = 2;
+  repeated DatasetMetadataMsg datasets = 3;
+}
+
+message ShardMetadataMsg {
+  uint64 shard_id = 1;
+  string dataset_name = 2;
+  uint64 start_sample = 3;
+  uint64 end_sample = 4;
+  string status = 5;
+  optional uint64 claimed_by = 6;
+  optional uint64 claimed_at_ms = 7;
+  optional uint64 updated_at_ms = 8;
+}
+
+message ClaimNextShardRequest {
+  uint64 worker_id = 1;
+  string dataset_name = 2;
+}
+
+message ClaimNextShardResponse {
+  bool ok = 1;
+  string error = 2;
+  bool claimed = 3;
+  ShardMetadataMsg shard = 4;
+}
+
+message CompleteShardRequest {
+  uint64 worker_id = 1;
+  string dataset_name = 2;
+  uint64 shard_id = 3;
+}
+
+message CompleteShardResponse {
+  bool ok = 1;
+  string error = 2;
+  ShardMetadataMsg shard = 3;
+}
+
+message ReleaseStaleShardsRequest {
+  uint64 timeout_ms = 1;
+}
+
+message ReleaseStaleShardsResponse {
+  bool ok = 1;
+  string error = 2;
+  uint64 released_count = 3;
+}
+
+message GetRuntimeOverviewRequest {}
+
+message AsyncMetricsMsg {
+  uint64 total_enqueued = 1;
+  uint64 total_committed = 2;
+  uint64 total_failed = 3;
+  uint64 total_dropped = 4;
+  uint64 total_bytes_written = 5;
+  optional double average_write_time_ms = 6;
+  uint64 total_retries = 7;
+  uint64 total_permanent_failures = 8;
+}
+
+message GetRuntimeOverviewResponse {
+  bool ok = 1;
+  string error = 2;
+  uint64 total_datasets = 3;
+  uint64 total_shards = 4;
+  uint64 pending_shards = 5;
+  uint64 claimed_shards = 6;
+  uint64 completed_shards = 7;
+  uint64 failed_shards = 8;
+  uint64 total_checkpoints = 9;
+  uint64 workers_seen = 10;
+  AsyncMetricsMsg async_metrics = 11;
+}
+
+message ListWorkersRequest {}
+
+message WorkerInfoMsg {
+  uint64 worker_id = 1;
+  optional uint64 latest_checkpoint_step = 2;
+  optional uint64 latest_local_step = 3;
+  uint64 committed_checkpoints = 4;
+  uint64 claimed_shards = 5;
+  uint64 completed_shards = 6;
+}
+
+message ListWorkersResponse {
+  bool ok = 1;
+  string error = 2;
+  repeated WorkerInfoMsg workers = 3;
+}
+
+message ListShardsRequest {
+  string dataset_name = 1;
+  optional string status = 2;
+}
+
+message ShardViewMsg {
+  uint64 shard_id = 1;
+  uint64 start = 2;
+  uint64 end = 3;
+  string status = 4;
+  optional uint64 worker_id = 5;
+  optional uint64 updated_at_ms = 6;
+}
+
+message ListShardsResponse {
+  bool ok = 1;
+  string error = 2;
+  repeated ShardViewMsg shards = 3;
+}
+
+message ListEventsRequest {
+  uint64 limit = 1;
+}
+
+message RuntimeEventMsg {
+  uint64 event_id = 1;
+  uint64 timestamp_ms = 2;
+  string level = 3;
+  string event_type = 4;
+  optional uint64 worker_id = 5;
+  optional string dataset_name = 6;
+  optional uint64 shard_id = 7;
+  optional uint64 step = 8;
+  string message = 9;
+}
+
+message ListEventsResponse {
+  bool ok = 1;
+  string error = 2;
+  repeated RuntimeEventMsg events = 3;
+}
+
+message CreateRunRequest {
+  string project_name = 1;
+  string run_name = 2;
+  repeated string tags = 3;
+}
+
+message RunMetadataMsg {
+  string run_id = 1;
+  string project_name = 2;
+  string run_name = 3;
+  uint64 created_at_ms = 4;
+  string status = 5;
+  uint64 total_workers_seen = 6;
+  uint64 latest_step = 7;
+  uint64 latest_checkpoint_step = 8;
+  optional double latest_loss = 9;
+  repeated string tags = 10;
+  optional double loss = 11;
+  optional double learning_rate = 12;
+  optional double throughput = 13;
+  uint64 latest_metric_at_ms = 14;
+}
+
+message CreateRunResponse {
+  bool ok = 1;
+  string error = 2;
+  RunMetadataMsg run = 3;
+}
+
+message ListRunsRequest {}
+
+message ListRunsResponse {
+  bool ok = 1;
+  string error = 2;
+  repeated RunMetadataMsg runs = 3;
+}
+
+message GetRunRequest {
+  string run_id = 1;
+}
+
+message GetRunResponse {
+  bool ok = 1;
+  string error = 2;
+  RunMetadataMsg run = 3;
+}
+
+message UpdateRunMetricsRequest {
+  string run_id = 1;
+  uint64 latest_step = 2;
+  optional double latest_loss = 3;
+  optional double loss = 4;
+  optional double learning_rate = 5;
+  optional double throughput = 6;
+  optional uint64 worker_id = 7;
+  optional uint64 latest_checkpoint_step = 8;
+}
+
+message UpdateRunMetricsResponse {
+  bool ok = 1;
+  string error = 2;
+  RunMetadataMsg run = 3;
+}
+
+message CompleteRunRequest {
+  string run_id = 1;
+  string status = 2;
+  optional string message = 3;
+}
+
+message CompleteRunResponse {
+  bool ok = 1;
+  string error = 2;
+  RunMetadataMsg run = 3;
+}
+
+message RunMetricPointMsg {
+  string run_id = 1;
+  uint64 step = 2;
+  uint64 timestamp_ms = 3;
+  map<string, double> metrics = 4;
+}
+
+message LogRunMetricsRequest {
+  string run_id = 1;
+  uint64 step = 2;
+  map<string, double> metrics = 3;
+  optional uint64 worker_id = 4;
+}
+
+message LogRunMetricsResponse {
+  bool ok = 1;
+  string error = 2;
+  RunMetadataMsg run = 3;
+}
+
+message ListRunMetricsRequest {
+  string run_id = 1;
+  uint64 limit = 2;
+}
+
+message ListRunMetricsResponse {
+  bool ok = 1;
+  string error = 2;
+  repeated RunMetricPointMsg points = 3;
+}
+
+message AlertMsg {
+  string alert_id = 1;
+  string rule_id = 2;
+  string alert_type = 3;
+  string severity = 4;
+  optional string run_id = 5;
+  string message = 6;
+  uint64 timestamp_ms = 7;
+  optional uint64 event_id = 8;
+}
+
+message ListAlertsRequest {}
+
+message ListAlertsResponse {
+  bool ok = 1;
+  string error = 2;
+  repeated AlertMsg alerts = 3;
+  uint64 active_count = 4;
+}
+
+message EvaluateAlertsRequest {}
+
+message EvaluateAlertsResponse {
+  bool ok = 1;
+  string error = 2;
+  repeated AlertMsg alerts = 3;
+  uint64 active_count = 4;
 }

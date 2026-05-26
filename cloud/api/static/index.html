@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Faultline Cloud</title>
+    <link rel="stylesheet" href="/static/landing.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <p class="eyebrow">Local dev preview · Version 16.2–16.3</p>
+      <h1>Monitor and recover ML training jobs from anywhere</h1>
+      <p class="lead">
+        Long-running training fails on laptops, clusters, and cloud VMs. Faultline Cloud
+        tracks metrics, checkpoints, and run status so you can see progress and restore
+        after interruptions.
+      </p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="/dashboard">View Dashboard</a>
+        <a class="btn btn-secondary" href="/getting-started">Getting Started</a>
+      </div>
+    </header>
+
+    <main>
+      <section class="card-grid">
+        <article class="card">
+          <h2>The problem</h2>
+          <p>
+            Training runs for hours or days. Nodes preempt, disks fill, processes crash.
+            Without durable metrics and checkpoints you lose visibility and progress.
+          </p>
+        </article>
+        <article class="card">
+          <h2>The solution</h2>
+          <p>
+            Stream <strong>metrics</strong> and <strong>events</strong> from your script.
+            Upload <strong>checkpoints</strong> to the cloud API. Use the dashboard to
+            inspect runs and download the latest state.
+          </p>
+        </article>
+        <article class="card">
+          <h2>Dev limitations</h2>
+          <p>
+            API keys are plaintext dev tokens (e.g. <code>fl_dev_local</code>). Storage is
+            local SQLite + filesystem under <code>cloud/data/</code>. No Stripe, no login
+            UI yet. Production would use object storage and real auth.
+          </p>
+        </article>
+      </section>
+    </main>
+
+    <footer>
+      <a href="/health">API health</a>
+      ·
+      <a href="https://github.com">Faultline repo</a>
+    </footer>
+  </body>
+</html>

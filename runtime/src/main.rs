@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use runtime::checkpoint_manager::CheckpointManager;
+use runtime::s3_storage::S3StorageConfig;
+use runtime::storage::build_grpc_storage_backend;
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -73,6 +75,9 @@ enum Command {
         #[arg(long, default_value_t = 0)]
         write_delay_ms: u64,
     },
+    /// Demonstrate async checkpoint retries after injected write failures.
+    #[command(name = "retry-demo")]
+    RetryDemo,
     /// Demonstrate failure injection and recovery (in-memory; not production).
     #[command(name = "failure-demo")]
     FailureDemo {
@@ -90,6 +95,23 @@ enum Command {
         queue_capacity: usize,
         #[arg(long, default_value_t = 0)]
         write_delay_ms: u64,
+        /// Checkpoint storage backend: local filesystem or S3-compatible object store.
+        #[arg(long, default_value = "local")]
+        storage: String,
+        /// S3 API endpoint (MinIO default: http://127.0.0.1:9000).
+        #[arg(long, default_value = "http://127.0.0.1:9000")]
+        s3_endpoint_url: String,
+        #[arg(long, default_value = "faultline")]
+        s3_bucket: String,
+        #[arg(long, default_value = "minioadmin")]
+        s3_access_key: String,
+        #[arg(long, default_value = "minioadmin")]
+        s3_secret_key: String,
+        #[arg(long, default_value = "us-east-1")]
+        s3_region: String,
+        /// Key prefix inside the bucket (for example `faultline` → `faultline/checkpoints/...`).
+        #[arg(long, default_value = "faultline")]
+        s3_prefix: String,
     },
 }
 
@@ -104,6 +126,9 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        Command::RetryDemo => {
+            runtime::retry_demo::run_retry_demo()?;
+        }
         Command::FailureDemo { summary } => {
             let summary_path = summary.or_else(|| Some(default_failure_demo_summary_path()));
             runtime::failure_demo::run_failure_demo_and_report(summary_path)?;
@@ -175,17 +200,48 @@ fn main() -> Result<()> {
             addr,
             queue_capacity,
             write_delay_ms,
+            storage,
+            s3_endpoint_url,
+            s3_bucket,
+            s3_access_key,
+            s3_secret_key,
+            s3_region,
+            s3_prefix,
         } => {
             let addr: SocketAddr = addr
                 .parse()
                 .with_context(|| format!("invalid --addr value: {addr}"))?;
+            if storage == "s3" {
+                eprintln!(
+                    "Faultline gRPC using S3 storage endpoint={s3_endpoint_url} bucket={s3_bucket} prefix={s3_prefix}"
+                );
+            }
+            let s3_config = if storage == "s3" {
+                Some(S3StorageConfig {
+                    endpoint_url: s3_endpoint_url,
+                    bucket: s3_bucket,
+                    access_key: s3_access_key,
+                    secret_key: s3_secret_key,
+                    region: s3_region,
+                    prefix: s3_prefix,
+                })
+            } else {
+                None
+            };
+            let checkpoint_storage = build_grpc_storage_backend(
+                &storage,
+                repo_root().join("checkpoints"),
+                s3_config,
+            )?;
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
                 .context("failed to start tokio runtime for gRPC")?;
             rt.block_on(runtime::grpc_service::run_grpc_server(
                 addr,
-                repo_root().join("checkpoints"),
+                checkpoint_storage,
+                repo_root().join("datasets"),
+                repo_root().join("runs"),
                 queue_capacity,
                 write_delay_ms,
             ))?;

@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Faultline Cloud Dashboard</title>
+    <link rel="stylesheet" href="/static/dashboard.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  </head>
+  <body>
+    <header class="header">
+      <div>
+        <h1>Faultline Cloud</h1>
+        <p class="subtitle">
+          <a href="/">Home</a> · <a href="/getting-started">Getting started</a>
+        </p>
+      </div>
+      <div class="header-actions">
+        <span id="health-badge" class="badge badge-unknown">checking…</span>
+        <label class="auto-refresh">
+          <input type="checkbox" id="auto-refresh" checked />
+          Auto-refresh (2s)
+        </label>
+        <button type="button" id="refresh-btn" class="btn">Refresh</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="section account-panel" id="account-panel">
+        <h2>Account &amp; getting started</h2>
+        <div class="account-grid">
+          <div class="account-card">
+            <h3>API key</h3>
+            <p><code id="api-key-display">fl_dev_local</code></p>
+            <button type="button" id="copy-key-btn" class="btn btn-small">Copy key</button>
+            <p class="hint">Prefix: <span id="api-key-prefix">—</span></p>
+          </div>
+          <div class="account-card">
+            <h3>Usage</h3>
+            <ul id="usage-list" class="usage-list"></ul>
+          </div>
+        </div>
+        <div class="starter-code">
+          <p class="hint api-hint">
+            <code>faultline.start()</code> · <code>run.log()</code> ·
+            <code>run.save()</code> · <code>run.restore_latest()</code>
+          </p>
+          <div class="starter-header">
+            <h3>Starter code</h3>
+            <button type="button" id="copy-code-btn" class="btn btn-small">Copy</button>
+          </div>
+          <pre id="starter-code-block"></pre>
+          <p class="hint">
+            Install: <code>pip install -e sdk</code> or <code>set PYTHONPATH=sdk</code>
+            (repo root). Start API:
+            <code>uvicorn cloud.api.app:app --reload --port 8080</code>
+          </p>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Runs</h2>
+        <div class="table-wrap">
+          <table id="runs-table">
+            <thead>
+              <tr>
+                <th>Run</th>
+                <th>Project</th>
+                <th>Status</th>
+                <th>Step</th>
+                <th>Loss</th>
+                <th>Checkpoint</th>
+                <th>Created</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div id="chart-panel" class="chart-panel hidden">
+          <div class="chart-header">
+            <h3 id="chart-title">Metrics</h3>
+            <label class="metric-select-label">
+              Metric
+              <select id="metric-select">
+                <option value="loss">loss</option>
+              </select>
+            </label>
+          </div>
+          <div class="chart-wrap">
+            <canvas id="metrics-chart"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Checkpoints</h2>
+        <p id="checkpoint-summary" class="hint">Select a run to view checkpoints.</p>
+        <div class="table-wrap">
+          <table id="checkpoints-table">
+            <thead>
+              <tr>
+                <th>Step</th>
+                <th>Size</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Lifecycle events</h2>
+        <div class="table-wrap">
+          <table id="events-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Level</th>
+                <th>Type</th>
+                <th>Message</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <p id="error-banner" class="error-banner hidden"></p>
+      <p id="last-updated" class="last-updated"></p>
+    </main>
+
+    <script src="/static/dashboard.js"></script>
+  </body>
+</html>

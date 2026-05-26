@@ -4,6 +4,10 @@ Tiny PyTorch training demo with Faultline pickle checkpoints and simulated crash
 
 from __future__ import annotations
 
+import os
+
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+
 import argparse
 import sys
 from pathlib import Path

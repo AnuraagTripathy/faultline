@@ -42,9 +42,166 @@ Recommended order (~15–25 minutes):
 2. **[Slow storage benchmark](sdk/benchmarks/slow_storage_benchmark.py)** — sync blocking vs async enqueue with simulated delay
 3. **[gRPC bytes benchmark](sdk/benchmarks/grpc_bytes_benchmark.py)** — file transport vs inline bytes (build release binary first)
 4. **[Worker simulation](sdk/examples/worker_simulation.py)** — 3 workers, crash, resume, per-worker latest
-5. **[Failure demo](docs/RUNBOOK.md#5-failure-injection-demo)** — `cd runtime && cargo run -- failure-demo`
+5. **[Dataset + shard coordination](sdk/examples/dataset_worker_simulation.py)** — register dataset, claim shards, crash, stale release, complete all shards
+6. **[Failure demo](docs/RUNBOOK.md#5-failure-injection-demo)** — `cd runtime && cargo run -- failure-demo`
 
 Full commands: **[docs/RUNBOOK.md](docs/RUNBOOK.md)**
+
+---
+
+## Dataset + shard coordination demo
+
+Minimal **dataset registry** for assigning work to workers (local simulation, not multi-node yet):
+
+- Register a dataset with `total_samples` and `shard_size` (shards = ceil(samples / shard_size))
+- Workers call `claim_next_shard(worker_id, dataset_name)` and `complete_shard(...)` over gRPC
+- `release_stale_shards(timeout_ms)` returns abandoned **Claimed** shards to **Pending** after a worker crash
+
+```bash
+conda activate faultline
+pip install grpcio grpcio-tools
+python sdk/examples/dataset_worker_simulation.py
+```
+
+The demo registers `fake-training` (100 samples, 10 per shard → 10 shards), runs 3 workers, simulates worker 1 crashing mid-shard, releases the stale claim, and finishes all shards. Registry state is persisted under `datasets/registry.json` (gitignored).
+
+---
+
+## Faultline Runs API (Version 15.0)
+
+Product-level entry point for training sessions — **runs**, **projects**, and **experiments** — while still using the same checkpoint runtime underneath.
+
+```python
+import faultline
+
+run = faultline.init(
+    project="protein-model",
+    run_name="experiment-1",
+    tags=["baseline"],
+)
+
+for step in range(1, 101):
+    loss = train_one_step()
+    run.log_metrics({"loss": loss, "learning_rate": 1e-3}, step=step)
+    if step % 10 == 0:
+        run.checkpoint({"model": state_dict(), "step": step}, step=step)
+
+run.complete()
+```
+
+- Run metadata persists under `runs/registry.json` (gitignored).
+- gRPC: `CreateRun`, `ListRuns`, `GetRun`, `UpdateRunMetrics`, `CompleteRun`.
+- Dashboard **Runs** section shows active runs, last metric update, latest step/loss, checkpoint step, and a **metric chart** when you select a run (history under `runs/metrics/`).
+- Example: `python sdk/examples/pytorch_faultline_run.py` (start `serve-grpc` first).
+
+Low-level worker/shard/checkpoint APIs remain unchanged.
+
+### Monitoring metrics beyond loss (Version 15.2)
+
+Log training progress, step timing, and optional host/GPU telemetry alongside checkpoints:
+
+```python
+for step in range(1, 101):
+    with run.track_step(step, num_samples=batch_size):
+        loss = train_one_step()
+
+    run.log_progress(step, loss=loss, learning_rate=lr)
+
+    if step % 10 == 0:
+        run.log_system_metrics(step=step)  # needs: pip install psutil
+```
+
+| Method | Logs |
+|--------|------|
+| `run.log_progress(step, loss=..., learning_rate=..., samples_per_sec=...)` | Training scalars |
+| `with run.track_step(step, num_samples=N):` | `step_time_ms`, optional `samples_per_sec` |
+| `run.log_system_metrics(step=...)` | `cpu_percent`, `memory_percent`, `process_rss_mb`; GPU MB if CUDA available |
+
+`log_system_metrics` skips quietly when `psutil` is not installed; call `collect_system_metrics()` directly if you want an install hint. The dashboard metric selector plots any logged key (`loss`, `step_time_ms`, `cpu_percent`, `gpu_memory_allocated_mb`, etc.).
+
+### Basic alerts (Version 15.3)
+
+In-memory rules detect stalled jobs, checkpoint failures, and bad metrics (no email/SMS):
+
+| Alert type | Triggers when |
+|------------|----------------|
+| `checkpoint_failed_or_permanent` | Event log contains `checkpoint_failed` or `checkpoint_failed_permanent` |
+| `run_stale` | A **running** run has no metrics for 60s (default) |
+| `metric_threshold` | A logged metric crosses a threshold (default: `loss > 10`) |
+
+```python
+from faultline import GrpcAsyncRuntime
+
+client = GrpcAsyncRuntime(addr="127.0.0.1:50051", start_server=False)
+client.start()
+result = client.evaluate_alerts()  # scan runs, metrics, events
+print(result["active_count"], result["alerts"])
+client.shutdown()
+```
+
+Dashboard **Alerts** panel and overview **Active alerts** card refresh every 2s via `EvaluateAlerts`. Example: `python sdk/examples/alert_demo.py`.
+
+---
+
+## Cloud mode MVP (Version 16.0–16.3)
+
+Hosted ingestion API (separate from the local Rust runtime). Metrics, events, and checkpoints go to **FastAPI + SQLite** with dev filesystem storage under `cloud/data/`.
+
+```bash
+uvicorn cloud.api.app:app --reload --port 8080
+set PYTHONPATH=sdk
+python sdk/examples/cloud_pytorch_easy.py
+# python sdk/examples/cloud_run_demo.py
+# python sdk/examples/cloud_checkpoint_demo.py
+```
+
+- Dashboard: http://127.0.0.1:8080/dashboard
+- Landing: http://127.0.0.1:8080/
+- Dev API key: `fl_dev_local` (plaintext, local dev only)
+- `faultline.init(..., mode="cloud", api_key="...", base_url="http://127.0.0.1:8080")`
+
+Production would use object storage and real auth/billing later. Details: **[cloud/README.md](cloud/README.md)**
+
+---
+
+## Local dashboard (Version 12.1)
+
+Read-only web UI over the same gRPC observability APIs — **FastAPI** backend, static HTML/JS frontend:
+
+```bash
+# Terminal 1: Rust runtime
+cd runtime && cargo build --release
+target/release/runtime.exe serve-grpc --addr 127.0.0.1:50051
+
+# Terminal 2: seed data (optional)
+python sdk/examples/observability_usage.py
+
+# Terminal 3: dashboard (from repo root)
+pip install fastapi uvicorn grpcio
+uvicorn dashboard.app:app --reload
+```
+
+Open http://127.0.0.1:8000 — overview cards, worker table, **recent events** timeline, shard table, 2s auto-refresh.
+
+Set `FAULTLINE_GRPC_ADDR` if the runtime listens elsewhere. Details: **[dashboard/README.md](dashboard/README.md)**
+
+---
+
+## Observability APIs
+
+Read-only gRPC inspection — one place for datasets, shards, workers, checkpoints, and async metrics:
+
+```python
+overview = runtime.get_runtime_overview()
+workers = runtime.list_workers()
+shards = runtime.list_shards("fake-training", status="claimed")
+```
+
+`GetRuntimeOverview` returns dataset/shard counts, committed checkpoint total, `workers_seen`, and async queue metrics (`total_enqueued`, `total_committed`, etc.). `ListWorkers` merges worker-aware checkpoint metadata with shard claim/completion counts. `ListShards` supports an optional status filter (`pending`, `claimed`, `completed`, `failed`).
+
+```bash
+python sdk/examples/observability_usage.py
+```
 
 ---
 
@@ -89,6 +246,7 @@ Deeper dive: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
 | `runtime/` | Rust: manager, async queue, CLI, gRPC, storage |
 | `sdk/` | Python client + examples + benchmarks |
 | `proto/` | gRPC schema |
+| `dashboard/` | Local FastAPI observability UI |
 | `docs/` | Architecture, runbook, roadmap |
 
 ---
@@ -98,6 +256,7 @@ Deeper dive: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
 | Doc | Contents |
 |-----|----------|
 | [docs/RUNBOOK.md](docs/RUNBOOK.md) | Setup, tests, every demo command, cleanup |
+| [docs/STORAGE.md](docs/STORAGE.md) | Local, in-memory, failure, and S3/MinIO backends |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Layers, metadata lifecycle, failure semantics |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Done / next / future |
 | [sdk/README.md](sdk/README.md) | Python API reference |

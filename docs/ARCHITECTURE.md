@@ -181,6 +181,40 @@ Worker-aware filenames still use global step in the name; worker identity lives 
 
 ---
 
+## Dataset registry (Version 11.0)
+
+Separate from checkpoint blobs: **`DatasetRegistry`** tracks shard assignment in `datasets/registry.json`.
+
+| Concept | Role |
+|---------|------|
+| `DatasetMetadata` | Name, `total_samples`, `shard_size`, `total_shards` |
+| `ShardMetadata` | Sample range, `ShardStatus`, optional `claimed_by` / `claimed_at_ms` |
+| `claim_next_shard` | Lowest pending shard → **Claimed** |
+| `complete_shard` | **Claimed** → **Completed** (must match worker) |
+| `release_stale_shards` | **Claimed** older than timeout → **Pending** |
+
+Exposed on the same gRPC server as checkpoints (`RegisterDataset`, `ClaimNextShard`, `CompleteShard`, `ListDatasets`, `ReleaseStaleShards`). Does not modify `CheckpointManager` behavior.
+
+---
+
+## Observability (Version 12.0)
+
+**Read-only** RPCs aggregate existing state; they do not mutate checkpoints or shards.
+
+| RPC | Sources |
+|-----|---------|
+| `GetRuntimeOverview` | `DatasetRegistry` shard counts + `metadata.json` checkpoint list length + `AsyncCheckpointRuntime` metrics |
+| `ListWorkers` | Worker fields on committed checkpoints + per-worker claimed/completed shard counts from registry |
+| `ListShards` | `DatasetRegistry` shard list with optional status filter |
+
+`updated_at_ms` on shards is set when status changes (for tables and debugging). Python: `get_runtime_overview()`, `list_workers()`, `list_shards(dataset_name, status=None)`.
+
+### Event log (Version 12.2)
+
+`EventLog` is an in-memory ring buffer (500 events) shared by the gRPC server, dataset registry, async runtime, and checkpoint manager. Events are **read-only** for clients (`ListEvents` / dashboard timeline). Recorded types include `checkpoint_queued`, `checkpoint_committed`, `checkpoint_failed`, `dataset_registered`, `shard_claimed`, `shard_completed`, `stale_shard_released`, and `prune_completed`.
+
+---
+
 ## Repo map
 
 | Path | Role |

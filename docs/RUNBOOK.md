@@ -100,7 +100,39 @@ python sdk/benchmarks/grpc_bytes_benchmark.py
 python sdk/examples/worker_simulation.py
 ```
 
-### 5. Failure injection demo
+### 5. Local dashboard
+
+```bash
+# Terminal 1
+cd runtime
+cargo build --release
+target/release/runtime.exe serve-grpc --addr 127.0.0.1:50051
+
+# Terminal 2 (optional data)
+python sdk/examples/observability_usage.py
+
+# Terminal 3 (repo root)
+pip install fastapi uvicorn
+uvicorn dashboard.app:app --reload
+```
+
+Open http://127.0.0.1:8000
+
+### 6. Observability APIs
+
+```bash
+conda activate faultline
+python sdk/examples/observability_usage.py
+```
+
+### 7. Dataset + shard coordination
+
+```bash
+conda activate faultline
+python sdk/examples/dataset_worker_simulation.py
+```
+
+### 8. Failure injection demo
 
 ```bash
 cd runtime
@@ -165,13 +197,14 @@ From repo root (PowerShell):
 
 ```powershell
 Remove-Item -Recurse -Force checkpoints -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force datasets -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force benchmarks\output -ErrorAction SilentlyContinue
 ```
 
 Unix:
 
 ```bash
-rm -rf checkpoints benchmarks/output
+rm -rf checkpoints datasets benchmarks/output
 ```
 
 Re-create output dir if needed:
@@ -195,6 +228,37 @@ Then fix the import in `sdk/faultline/grpc/faultline_pb2_grpc.py`:
 `import faultline_pb2` → `from . import faultline_pb2`
 
 Or use `sdk/scripts/generate_grpc_stubs.sh` on Unix.
+
+---
+
+## Cloud mode MVP (Version 16.2–16.3)
+
+Separate product layer — does **not** replace local `serve-grpc` or the dashboard on port 8000.
+
+```bash
+pip install fastapi uvicorn pydantic
+uvicorn cloud.api.app:app --reload --port 8080
+```
+
+```bash
+set PYTHONPATH=sdk
+python sdk/examples/cloud_run_demo.py
+python sdk/examples/cloud_checkpoint_demo.py
+```
+
+| URL | Purpose |
+|-----|---------|
+| http://127.0.0.1:8080/ | Landing page |
+| http://127.0.0.1:8080/getting-started | Connect guide |
+| http://127.0.0.1:8080/dashboard | Runs, metrics, checkpoints, usage |
+
+Dev API key: `fl_dev_local` (`Authorization: Bearer fl_dev_local`).
+
+Checkpoint files: `cloud/data/checkpoints/<user_id>/<run_id>/step_<N>.pkl` (override with `FAULTLINE_CLOUD_CHECKPOINTS_DIR`).
+
+```bash
+python -m unittest discover cloud/tests
+```
 
 ---
 

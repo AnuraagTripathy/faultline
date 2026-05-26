@@ -5,6 +5,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
+
+use crate::s3_storage::{S3StorageBackend, S3StorageConfig};
+
 const METADATA_FILE_NAME: &str = "metadata.json";
 
 /// Pluggable checkpoint blob storage (local disk today; object stores later).
@@ -323,6 +326,7 @@ impl StorageBackend for InMemoryStorageBackend {
 #[derive(Default)]
 struct FailureState {
     fail_next_write_atomic: bool,
+    write_atomic_failures_remaining: u32,
     fail_next_read: bool,
     fail_next_delete: bool,
     fail_next_write_metadata: bool,
@@ -349,6 +353,14 @@ impl<B: StorageBackend> FailureInjectingStorageBackend<B> {
 
     pub fn fail_next_write_atomic(&self) {
         self.state.lock().expect("failure injector lock poisoned").fail_next_write_atomic = true;
+    }
+
+    /// Fail the next `count` `write_atomic` calls (for retry / chaos tests).
+    pub fn set_write_atomic_failures(&self, count: u32) {
+        self.state
+            .lock()
+            .expect("failure injector lock poisoned")
+            .write_atomic_failures_remaining = count;
     }
 
     pub fn fail_next_read(&self) {
@@ -386,6 +398,16 @@ impl<B: StorageBackend> FailureInjectingStorageBackend<B> {
             false
         }
     }
+
+    fn take_write_atomic_failure(&self) -> bool {
+        let mut state = self.state.lock().expect("failure injector lock poisoned");
+        if state.write_atomic_failures_remaining > 0 {
+            state.write_atomic_failures_remaining -= 1;
+            true
+        } else {
+            false
+        }
+    }
 }
 
 impl<B: StorageBackend> StorageBackend for FailureInjectingStorageBackend<B> {
@@ -394,7 +416,9 @@ impl<B: StorageBackend> StorageBackend for FailureInjectingStorageBackend<B> {
     }
 
     fn write_atomic(&self, final_name: &str, data: &[u8]) -> Result<String> {
-        if self.take_failure(|state| &mut state.fail_next_write_atomic) {
+        if self.take_failure(|state| &mut state.fail_next_write_atomic)
+            || self.take_write_atomic_failure()
+        {
             return Err(anyhow::anyhow!("injected write_atomic failure"));
         }
         self.inner.write_atomic(final_name, data)
@@ -434,6 +458,30 @@ impl<B: StorageBackend> StorageBackend for FailureInjectingStorageBackend<B> {
 
     fn metadata_exists(&self) -> bool {
         self.inner.metadata_exists()
+    }
+}
+
+/// Build the storage backend used by `serve-grpc`.
+pub fn build_grpc_storage_backend(
+    storage_kind: &str,
+    local_checkpoint_dir: PathBuf,
+    s3_config: Option<S3StorageConfig>,
+) -> Result<Arc<dyn StorageBackend>> {
+    match storage_kind {
+        "local" => Ok(Arc::new(LocalStorageBackend::new(
+            local_checkpoint_dir,
+            "checkpoints",
+        ))),
+        "s3" => {
+            let config = s3_config.context(
+                "S3 storage requires --s3-endpoint-url, --s3-bucket, --s3-access-key, and --s3-secret-key",
+            )?;
+            let backend = S3StorageBackend::new(config)?;
+            Ok(backend)
+        }
+        other => anyhow::bail!(
+            "unknown --storage value {other:?}; expected \"local\" or \"s3\""
+        ),
     }
 }
 

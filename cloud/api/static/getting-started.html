@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Getting Started — Faultline Cloud</title>
+    <link rel="stylesheet" href="/static/landing.css" />
+    <style>
+      .doc {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 2rem 1.5rem 3rem;
+      }
+      .doc h1 {
+        text-align: left;
+        font-size: 1.75rem;
+      }
+      .doc h2 {
+        margin-top: 2rem;
+        font-size: 1.1rem;
+      }
+      pre {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 1rem;
+        overflow-x: auto;
+        font-size: 0.8rem;
+      }
+      .nav {
+        margin-bottom: 1.5rem;
+      }
+      .nav a {
+        color: var(--accent);
+        margin-right: 1rem;
+      }
+      details {
+        margin-top: 1.5rem;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+        background: var(--surface);
+      }
+      details summary {
+        cursor: pointer;
+        font-weight: 600;
+      }
+      .api-list {
+        font-family: ui-monospace, monospace;
+        font-size: 0.9rem;
+        line-height: 1.8;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="doc">
+      <nav class="nav">
+        <a href="/">Home</a>
+        <a href="/dashboard">Dashboard</a>
+      </nav>
+
+      <h1>Getting started with Faultline Cloud</h1>
+      <p>
+        Log metrics and checkpoints from any training script with a few lines of Python.
+      </p>
+
+      <h2>1. Start the API</h2>
+      <pre>pip install fastapi uvicorn pydantic python-multipart
+uvicorn cloud.api.app:app --reload --port 8080</pre>
+
+      <h2>2. Install the SDK</h2>
+      <pre>pip install -e sdk
+# or from repo root: set PYTHONPATH=sdk</pre>
+      <p>
+        Dev API key (seeded on startup): <code>fl_dev_local</code>
+      </p>
+
+      <h2>3. Log from your script</h2>
+      <p class="api-list">
+        faultline.start() · run.log() · run.save() · run.restore_latest()
+      </p>
+      <pre>import faultline
+
+run = faultline.start(
+    "my-run",
+    project="my-project",
+    api_key="fl_dev_local",
+    base_url="http://127.0.0.1:8080",
+)
+
+step = run.restore_latest(model=model, optimizer=optimizer)
+
+for step in range(step, 100):
+    run.log(loss=0.5, accuracy=0.9)  # step auto-increments
+    if step % 10 == 0:
+        run.save(model=model, optimizer=optimizer, step=step)
+
+run.complete()</pre>
+      <p>
+        Open <a href="/dashboard">/dashboard</a> to chart metrics and download checkpoints.
+        Training runs on <strong>your machine</strong>; the cloud API only stores what you send it.
+      </p>
+      <p>Try the longer demo (~20s, live-updating charts):</p>
+      <pre>python sdk/examples/cloud_pytorch_easy.py --steps 180 --step-delay 0.12</pre>
+
+      <details>
+        <summary>Advanced usage</summary>
+        <h2>Explicit init mode</h2>
+        <pre>run = faultline.init(
+    project="my-project",
+    run_name="my-run",
+    mode="cloud",
+    api_key="fl_dev_local",
+    base_url="http://127.0.0.1:8080",
+)
+run.log_metrics({"loss": 0.5}, step=10)</pre>
+
+        <h2>Raw checkpoint API</h2>
+        <pre>run.checkpoint({"model_state": ...}, step=step)
+state = run.load_latest_checkpoint_or_none()</pre>
+        <p>
+          <strong>Warning:</strong> checkpoints use Python pickle — only load checkpoints
+          you created yourself.
+        </p>
+
+        <h2>PyTorch helper</h2>
+        <pre>from faultline.integrations.pytorch import watch_training
+
+run, cb, start_step = watch_training(
+    model, optimizer,
+    project="my-project",
+    run_name="my-run",
+    api_key="fl_dev_local",
+)
+cb.on_step_end(step, loss=0.5)</pre>
+
+        <h2>What is not included yet</h2>
+        <ul>
+          <li>Stripe / billing</li>
+          <li>Login or team management UI</li>
+          <li>S3/R2 object storage (local files only)</li>
+        </ul>
+      </details>
+    </div>
+  </body>
+</html>

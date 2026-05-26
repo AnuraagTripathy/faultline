@@ -6,10 +6,19 @@ use anyhow::{Context, Result};
 use tokio::sync::Mutex;
 use tonic::{transport::Server, Request, Response, Status, Streaming};
 
+use crate::alert_engine::{Alert, AlertEngine};
 use crate::async_runtime::AsyncCheckpointRuntime;
 use crate::async_service::format_job_status;
 use crate::checkpoint_manager::CheckpointManager;
+use crate::dataset_registry::{DatasetMetadata, DatasetRegistry, ShardMetadata};
+use crate::run_registry::{RunLoggedMetrics, RunMetadata, RunMetricPoint, RunRegistry, RunStatus};
+use crate::event_log::{EventLog, RuntimeEvent};
 use crate::metadata::CheckpointEntry as RustCheckpointEntry;
+use crate::observability::{
+    build_runtime_overview, build_worker_summaries, shard_worker_id, RuntimeOverview,
+    WorkerSummary,
+};
+use crate::runtime_metrics::RuntimeMetrics;
 use crate::service::read_checkpoint_file;
 
 pub mod proto {
@@ -18,10 +27,21 @@ pub mod proto {
 
 use proto::faultline_service_server::{FaultlineService, FaultlineServiceServer};
 use proto::{
-    CheckpointChunk, CheckpointEntry, EnqueueWorkerBytesRequest, EnqueueWorkerFromFileRequest,
-    EnqueueResponse, GenericResponse, LatestForWorkerRequest, LatestForWorkerResponse,
-    MetricsRequest, MetricsResponse, SaveFromFileRequest, ShutdownRequest, StatusRequest,
-    StatusResponse,
+    CheckpointChunk, CheckpointEntry, ClaimNextShardRequest, ClaimNextShardResponse,
+    CompleteShardRequest, CompleteShardResponse, DatasetMetadataMsg, EnqueueWorkerBytesRequest,
+    EnqueueWorkerFromFileRequest, EnqueueResponse, GenericResponse, LatestForWorkerRequest,
+    LatestForWorkerResponse, ListDatasetsRequest, ListDatasetsResponse, MetricsRequest,
+    AsyncMetricsMsg, GetRuntimeOverviewRequest, GetRuntimeOverviewResponse, ListShardsRequest,
+    ListEventsRequest, ListEventsResponse, ListShardsResponse, ListWorkersRequest,
+    ListWorkersResponse, MetricsResponse, RegisterDatasetRequest, RegisterDatasetResponse,
+    ReleaseStaleShardsRequest, ReleaseStaleShardsResponse, RuntimeEventMsg,
+    SaveFromFileRequest, ShutdownRequest, ShardMetadataMsg, ShardViewMsg, StatusRequest,
+    StatusResponse, WorkerInfoMsg, CreateRunRequest, CreateRunResponse, ListRunsRequest,
+    ListRunsResponse, GetRunRequest, GetRunResponse, UpdateRunMetricsRequest,
+    UpdateRunMetricsResponse, CompleteRunRequest, CompleteRunResponse, RunMetadataMsg,
+    LogRunMetricsRequest, LogRunMetricsResponse, ListRunMetricsRequest, ListRunMetricsResponse,
+    RunMetricPointMsg, ListAlertsRequest, ListAlertsResponse, EvaluateAlertsRequest,
+    EvaluateAlertsResponse, AlertMsg,
 };
 
 const DEFAULT_QUEUE_CAPACITY: usize = 8;
@@ -31,20 +51,57 @@ const MAX_STREAM_CHECKPOINT_BYTES: usize = 512 * 1024 * 1024;
 /// gRPC front-end sharing one async runtime and its checkpoint manager.
 pub struct FaultlineGrpc {
     runtime: Arc<Mutex<Option<AsyncCheckpointRuntime>>>,
+    dataset_registry: Arc<DatasetRegistry>,
+    run_registry: Arc<RunRegistry>,
+    event_log: Arc<EventLog>,
+    alert_engine: Arc<AlertEngine>,
     server_shutdown: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
 }
 
 impl FaultlineGrpc {
     pub async fn new(
         manager: CheckpointManager,
+        dataset_registry: Arc<DatasetRegistry>,
+        run_registry: Arc<RunRegistry>,
+        event_log: Arc<EventLog>,
+        alert_engine: Arc<AlertEngine>,
         queue_capacity: usize,
         server_shutdown: tokio::sync::oneshot::Sender<()>,
     ) -> Result<Self> {
         let runtime = AsyncCheckpointRuntime::start(manager, queue_capacity).await;
         Ok(Self {
             runtime: Arc::new(Mutex::new(Some(runtime))),
+            dataset_registry,
+            run_registry,
+            event_log,
+            alert_engine,
             server_shutdown: Mutex::new(Some(server_shutdown)),
         })
+    }
+
+    async fn evaluate_alerts_inner(&self) -> Result<Vec<Alert>, Status> {
+        let run_registry = Arc::clone(&self.run_registry);
+        let event_log = Arc::clone(&self.event_log);
+        let alert_engine = Arc::clone(&self.alert_engine);
+        let alerts = tokio::task::spawn_blocking(move || {
+            let runs = run_registry.list_runs().map_err(|error| error.to_string())?;
+            let events = event_log.list_events(crate::event_log::DEFAULT_EVENT_LOG_CAPACITY);
+            let now_ms = crate::dataset_registry::current_time_ms();
+            Ok(alert_engine.evaluate(
+                &runs,
+                &events,
+                |run_id| {
+                    run_registry
+                        .list_run_metrics(run_id, 1000)
+                        .unwrap_or_default()
+                },
+                now_ms,
+            ))
+        })
+        .await
+        .map_err(|error| Status::internal(error.to_string()))?
+        .map_err(|error: String| Status::internal(error))?;
+        Ok(alerts)
     }
 
     async fn runtime_ref(&self) -> tokio::sync::MutexGuard<'_, Option<AsyncCheckpointRuntime>> {
@@ -205,11 +262,22 @@ impl FaultlineService for FaultlineGrpc {
         let guard = self.runtime_ref().await;
         let runtime = Self::require_runtime(&guard)?;
         let manager = runtime.shared_manager();
+        let event_log = Arc::clone(&self.event_log);
         tokio::task::spawn_blocking(move || {
             let bytes = read_checkpoint_file(&path).map_err(Status::invalid_argument)?;
             manager
                 .save_checkpoint(step, &bytes)
-                .map_err(|error| Status::internal(error.to_string()))
+                .map_err(|error| Status::internal(error.to_string()))?;
+            crate::event_log::record_event(
+                &Some(event_log),
+                crate::event_log::RuntimeEventInput::new(
+                    crate::event_log::EventLevel::Info,
+                    "checkpoint_committed",
+                    format!("checkpoint step {step} committed (sync save_from_file)"),
+                )
+                .step(step),
+            );
+            Ok::<(), Status>(())
         })
         .await
         .map_err(|error| Status::internal(error.to_string()))??;
@@ -347,6 +415,417 @@ impl FaultlineService for FaultlineGrpc {
             total_bytes_written: metrics.total_bytes_written,
             total_write_time_ms: metrics.total_write_time_ms as u64,
             average_write_time_ms: metrics.average_write_time_ms(),
+            total_retries: metrics.total_retries,
+            total_permanent_failures: metrics.total_permanent_failures,
+        }))
+    }
+
+    async fn register_dataset(
+        &self,
+        request: Request<RegisterDatasetRequest>,
+    ) -> Result<Response<RegisterDatasetResponse>, Status> {
+        let req = request.into_inner();
+        let registry = Arc::clone(&self.dataset_registry);
+        let metadata = tokio::task::spawn_blocking(move || {
+            registry.register_dataset(&req.name, req.total_samples, req.shard_size)
+        })
+        .await
+        .map_err(|error| Status::internal(error.to_string()))?
+        .map_err(|error| Status::invalid_argument(error.to_string()))?;
+
+        Ok(Response::new(RegisterDatasetResponse {
+            ok: true,
+            error: String::new(),
+            dataset: Some(to_proto_dataset(metadata)),
+        }))
+    }
+
+    async fn list_datasets(
+        &self,
+        _request: Request<ListDatasetsRequest>,
+    ) -> Result<Response<ListDatasetsResponse>, Status> {
+        let registry = Arc::clone(&self.dataset_registry);
+        let datasets = tokio::task::spawn_blocking(move || registry.list_datasets())
+            .await
+            .map_err(|error| Status::internal(error.to_string()))?
+            .map_err(|error| Status::internal(error.to_string()))?;
+
+        Ok(Response::new(ListDatasetsResponse {
+            ok: true,
+            error: String::new(),
+            datasets: datasets.into_iter().map(to_proto_dataset).collect(),
+        }))
+    }
+
+    async fn claim_next_shard(
+        &self,
+        request: Request<ClaimNextShardRequest>,
+    ) -> Result<Response<ClaimNextShardResponse>, Status> {
+        let req = request.into_inner();
+        let registry = Arc::clone(&self.dataset_registry);
+        let dataset_name = req.dataset_name.clone();
+        let shard = tokio::task::spawn_blocking(move || {
+            registry.claim_next_shard(req.worker_id, &dataset_name)
+        })
+        .await
+        .map_err(|error| Status::internal(error.to_string()))?
+        .map_err(|error| Status::internal(error.to_string()))?;
+
+        match shard {
+            Some(claimed) => Ok(Response::new(ClaimNextShardResponse {
+                ok: true,
+                error: String::new(),
+                claimed: true,
+                shard: Some(to_proto_shard(claimed)),
+            })),
+            None => Ok(Response::new(ClaimNextShardResponse {
+                ok: true,
+                error: String::new(),
+                claimed: false,
+                shard: None,
+            })),
+        }
+    }
+
+    async fn complete_shard(
+        &self,
+        request: Request<CompleteShardRequest>,
+    ) -> Result<Response<CompleteShardResponse>, Status> {
+        let req = request.into_inner();
+        let registry = Arc::clone(&self.dataset_registry);
+        let dataset_name = req.dataset_name.clone();
+        let shard = tokio::task::spawn_blocking(move || {
+            registry.complete_shard(req.worker_id, &dataset_name, req.shard_id)
+        })
+        .await
+        .map_err(|error| Status::internal(error.to_string()))?
+        .map_err(|error| Status::failed_precondition(error.to_string()))?;
+
+        Ok(Response::new(CompleteShardResponse {
+            ok: true,
+            error: String::new(),
+            shard: Some(to_proto_shard(shard)),
+        }))
+    }
+
+    async fn create_run(
+        &self,
+        request: Request<CreateRunRequest>,
+    ) -> Result<Response<CreateRunResponse>, Status> {
+        let req = request.into_inner();
+        let registry = Arc::clone(&self.run_registry);
+        let run = tokio::task::spawn_blocking(move || {
+            registry.create_run(&req.project_name, &req.run_name, req.tags)
+        })
+        .await
+        .map_err(|error| Status::internal(error.to_string()))?
+        .map_err(|error| Status::invalid_argument(error.to_string()))?;
+
+        Ok(Response::new(CreateRunResponse {
+            ok: true,
+            error: String::new(),
+            run: Some(to_proto_run(run)),
+        }))
+    }
+
+    async fn list_runs(
+        &self,
+        _request: Request<ListRunsRequest>,
+    ) -> Result<Response<ListRunsResponse>, Status> {
+        let registry = Arc::clone(&self.run_registry);
+        let runs = tokio::task::spawn_blocking(move || registry.list_runs())
+            .await
+            .map_err(|error| Status::internal(error.to_string()))?
+            .map_err(|error| Status::internal(error.to_string()))?;
+
+        Ok(Response::new(ListRunsResponse {
+            ok: true,
+            error: String::new(),
+            runs: runs.into_iter().map(to_proto_run).collect(),
+        }))
+    }
+
+    async fn get_run(
+        &self,
+        request: Request<GetRunRequest>,
+    ) -> Result<Response<GetRunResponse>, Status> {
+        let run_id = request.into_inner().run_id;
+        let lookup_id = run_id.clone();
+        let registry = Arc::clone(&self.run_registry);
+        let run = tokio::task::spawn_blocking(move || registry.get_run(&lookup_id))
+            .await
+            .map_err(|error| Status::internal(error.to_string()))?
+            .map_err(|error| Status::internal(error.to_string()))?;
+
+        match run {
+            Some(metadata) => Ok(Response::new(GetRunResponse {
+                ok: true,
+                error: String::new(),
+                run: Some(to_proto_run(metadata)),
+            })),
+            None => Ok(Response::new(GetRunResponse {
+                ok: false,
+                error: format!("unknown run: {run_id}"),
+                run: None,
+            })),
+        }
+    }
+
+    async fn update_run_metrics(
+        &self,
+        request: Request<UpdateRunMetricsRequest>,
+    ) -> Result<Response<UpdateRunMetricsResponse>, Status> {
+        let req = request.into_inner();
+        let registry = Arc::clone(&self.run_registry);
+        let run = tokio::task::spawn_blocking(move || {
+            if let Some(worker_id) = req.worker_id {
+                registry.attach_worker_to_run(&req.run_id, worker_id)?;
+            }
+            if let Some(checkpoint_step) = req.latest_checkpoint_step {
+                registry.update_checkpoint_step(&req.run_id, checkpoint_step)?;
+            }
+            registry.update_run_metrics(
+                &req.run_id,
+                req.latest_step,
+                req.latest_loss,
+                RunLoggedMetrics {
+                    loss: req.loss,
+                    learning_rate: req.learning_rate,
+                    throughput: req.throughput,
+                },
+            )
+        })
+        .await
+        .map_err(|error| Status::internal(error.to_string()))?
+        .map_err(|error| Status::invalid_argument(error.to_string()))?;
+
+        Ok(Response::new(UpdateRunMetricsResponse {
+            ok: true,
+            error: String::new(),
+            run: Some(to_proto_run(run)),
+        }))
+    }
+
+    async fn log_run_metrics(
+        &self,
+        request: Request<LogRunMetricsRequest>,
+    ) -> Result<Response<LogRunMetricsResponse>, Status> {
+        let req = request.into_inner();
+        let registry = Arc::clone(&self.run_registry);
+        let run_id = req.run_id.clone();
+        let step = req.step;
+        let metrics: std::collections::HashMap<String, f64> = req.metrics;
+        let worker_id = req.worker_id;
+        let run = tokio::task::spawn_blocking(move || {
+            if let Some(worker_id) = worker_id {
+                registry.attach_worker_to_run(&run_id, worker_id)?;
+            }
+            registry
+                .append_run_metrics(&run_id, step, metrics)
+                .map(|(metadata, _point)| metadata)
+        })
+        .await
+        .map_err(|error| Status::internal(error.to_string()))?
+        .map_err(|error| Status::invalid_argument(error.to_string()))?;
+
+        Ok(Response::new(LogRunMetricsResponse {
+            ok: true,
+            error: String::new(),
+            run: Some(to_proto_run(run)),
+        }))
+    }
+
+    async fn list_run_metrics(
+        &self,
+        request: Request<ListRunMetricsRequest>,
+    ) -> Result<Response<ListRunMetricsResponse>, Status> {
+        let req = request.into_inner();
+        let run_id = req.run_id.clone();
+        let limit = req.limit as usize;
+        let registry = Arc::clone(&self.run_registry);
+        let points = tokio::task::spawn_blocking(move || {
+            registry.list_run_metrics(&run_id, limit)
+        })
+        .await
+        .map_err(|error| Status::internal(error.to_string()))?
+        .map_err(|error| Status::invalid_argument(error.to_string()))?;
+
+        Ok(Response::new(ListRunMetricsResponse {
+            ok: true,
+            error: String::new(),
+            points: points.into_iter().map(to_proto_run_metric_point).collect(),
+        }))
+    }
+
+    async fn complete_run(
+        &self,
+        request: Request<CompleteRunRequest>,
+    ) -> Result<Response<CompleteRunResponse>, Status> {
+        let req = request.into_inner();
+        let status = RunStatus::parse(&req.status).ok_or_else(|| {
+            Status::invalid_argument(format!("unknown run status: {}", req.status))
+        })?;
+        let registry = Arc::clone(&self.run_registry);
+        let run = tokio::task::spawn_blocking(move || {
+            registry.update_run_status(&req.run_id, status)
+        })
+        .await
+        .map_err(|error| Status::internal(error.to_string()))?
+        .map_err(|error| Status::invalid_argument(error.to_string()))?;
+
+        Ok(Response::new(CompleteRunResponse {
+            ok: true,
+            error: String::new(),
+            run: Some(to_proto_run(run)),
+        }))
+    }
+
+    async fn list_alerts(
+        &self,
+        _request: Request<ListAlertsRequest>,
+    ) -> Result<Response<ListAlertsResponse>, Status> {
+        let alert_engine = Arc::clone(&self.alert_engine);
+        let alerts = tokio::task::spawn_blocking(move || alert_engine.list_alerts())
+            .await
+            .map_err(|error| Status::internal(error.to_string()))?;
+        let active_count = alerts.len() as u64;
+        Ok(Response::new(ListAlertsResponse {
+            ok: true,
+            error: String::new(),
+            alerts: alerts.into_iter().map(to_proto_alert).collect(),
+            active_count,
+        }))
+    }
+
+    async fn evaluate_alerts(
+        &self,
+        _request: Request<EvaluateAlertsRequest>,
+    ) -> Result<Response<EvaluateAlertsResponse>, Status> {
+        let alerts = self.evaluate_alerts_inner().await?;
+        let active_count = alerts.len() as u64;
+        Ok(Response::new(EvaluateAlertsResponse {
+            ok: true,
+            error: String::new(),
+            alerts: alerts.into_iter().map(to_proto_alert).collect(),
+            active_count,
+        }))
+    }
+
+    async fn release_stale_shards(
+        &self,
+        request: Request<ReleaseStaleShardsRequest>,
+    ) -> Result<Response<ReleaseStaleShardsResponse>, Status> {
+        let timeout_ms = request.into_inner().timeout_ms;
+        let registry = Arc::clone(&self.dataset_registry);
+        let released_count = tokio::task::spawn_blocking(move || {
+            registry.release_stale_shards(timeout_ms)
+        })
+        .await
+        .map_err(|error| Status::internal(error.to_string()))?
+        .map_err(|error| Status::internal(error.to_string()))?;
+
+        Ok(Response::new(ReleaseStaleShardsResponse {
+            ok: true,
+            error: String::new(),
+            released_count,
+        }))
+    }
+
+    async fn get_runtime_overview(
+        &self,
+        _request: Request<GetRuntimeOverviewRequest>,
+    ) -> Result<Response<GetRuntimeOverviewResponse>, Status> {
+        let guard = self.runtime_ref().await;
+        let runtime = Self::require_runtime(&guard)?;
+        let metrics = runtime.metrics().await;
+        let manager = runtime.shared_manager();
+        drop(guard);
+
+        let registry = Arc::clone(&self.dataset_registry);
+        let overview = tokio::task::spawn_blocking(move || {
+            let checkpoints = manager
+                .list_checkpoints()
+                .map_err(|error| error.to_string())?;
+            Ok::<RuntimeOverview, String>(build_runtime_overview(
+                &registry,
+                &checkpoints,
+                metrics,
+            ))
+        })
+        .await
+        .map_err(|error| Status::internal(error.to_string()))?
+        .map_err(|error| Status::internal(error))?;
+
+        Ok(Response::new(to_proto_overview(overview)))
+    }
+
+    async fn list_workers(
+        &self,
+        _request: Request<ListWorkersRequest>,
+    ) -> Result<Response<ListWorkersResponse>, Status> {
+        let guard = self.runtime_ref().await;
+        let runtime = Self::require_runtime(&guard)?;
+        let manager = runtime.shared_manager();
+        drop(guard);
+
+        let registry = Arc::clone(&self.dataset_registry);
+        let workers = tokio::task::spawn_blocking(move || {
+            let checkpoints = manager
+                .list_checkpoints()
+                .map_err(|error| error.to_string())?;
+            Ok::<Vec<WorkerSummary>, String>(build_worker_summaries(&registry, &checkpoints))
+        })
+        .await
+        .map_err(|error| Status::internal(error.to_string()))?
+        .map_err(|error| Status::internal(error))?;
+
+        Ok(Response::new(ListWorkersResponse {
+            ok: true,
+            error: String::new(),
+            workers: workers.into_iter().map(to_proto_worker).collect(),
+        }))
+    }
+
+    async fn list_shards(
+        &self,
+        request: Request<ListShardsRequest>,
+    ) -> Result<Response<ListShardsResponse>, Status> {
+        let req = request.into_inner();
+        let status_filter = req.status.filter(|value| !value.is_empty());
+        let registry = Arc::clone(&self.dataset_registry);
+        let dataset_name = req.dataset_name.clone();
+
+        let shards = tokio::task::spawn_blocking(move || {
+            registry
+                .list_shards(&dataset_name, status_filter.as_deref())
+                .map_err(|error| error.to_string())
+        })
+        .await
+        .map_err(|error| Status::internal(error.to_string()))?
+        .map_err(|error| Status::invalid_argument(error))?;
+
+        Ok(Response::new(ListShardsResponse {
+            ok: true,
+            error: String::new(),
+            shards: shards.into_iter().map(to_proto_shard_view).collect(),
+        }))
+    }
+
+    async fn list_events(
+        &self,
+        request: Request<ListEventsRequest>,
+    ) -> Result<Response<ListEventsResponse>, Status> {
+        let limit = request.into_inner().limit;
+        let limit = if limit == 0 { 100 } else { limit as usize };
+        let event_log = Arc::clone(&self.event_log);
+        let events = tokio::task::spawn_blocking(move || event_log.list_events(limit))
+            .await
+            .map_err(|error| Status::internal(error.to_string()))?;
+
+        Ok(Response::new(ListEventsResponse {
+            ok: true,
+            error: String::new(),
+            events: events.into_iter().map(to_proto_event).collect(),
         }))
     }
 
@@ -390,6 +869,134 @@ fn to_proto_checkpoint(entry: RustCheckpointEntry) -> CheckpointEntry {
     }
 }
 
+fn to_proto_dataset(metadata: DatasetMetadata) -> DatasetMetadataMsg {
+    DatasetMetadataMsg {
+        name: metadata.name,
+        total_samples: metadata.total_samples,
+        shard_size: metadata.shard_size,
+        total_shards: metadata.total_shards,
+    }
+}
+
+fn to_proto_shard(shard: ShardMetadata) -> ShardMetadataMsg {
+    ShardMetadataMsg {
+        shard_id: shard.shard_id,
+        dataset_name: shard.dataset_name,
+        start_sample: shard.start_sample,
+        end_sample: shard.end_sample,
+        status: shard.status.as_str().to_string(),
+        claimed_by: shard.claimed_by,
+        claimed_at_ms: shard.claimed_at_ms,
+        updated_at_ms: shard.updated_at_ms,
+    }
+}
+
+fn to_proto_overview(overview: RuntimeOverview) -> GetRuntimeOverviewResponse {
+    GetRuntimeOverviewResponse {
+        ok: true,
+        error: String::new(),
+        total_datasets: overview.total_datasets,
+        total_shards: overview.total_shards,
+        pending_shards: overview.pending_shards,
+        claimed_shards: overview.claimed_shards,
+        completed_shards: overview.completed_shards,
+        failed_shards: overview.failed_shards,
+        total_checkpoints: overview.total_checkpoints,
+        workers_seen: overview.workers_seen,
+        async_metrics: Some(to_proto_async_metrics(overview.async_metrics)),
+    }
+}
+
+fn to_proto_async_metrics(metrics: RuntimeMetrics) -> AsyncMetricsMsg {
+    AsyncMetricsMsg {
+        total_enqueued: metrics.total_enqueued,
+        total_committed: metrics.total_committed,
+        total_failed: metrics.total_failed,
+        total_dropped: metrics.total_dropped,
+        total_bytes_written: metrics.total_bytes_written,
+        average_write_time_ms: metrics.average_write_time_ms(),
+        total_retries: metrics.total_retries,
+        total_permanent_failures: metrics.total_permanent_failures,
+    }
+}
+
+fn to_proto_worker(worker: WorkerSummary) -> WorkerInfoMsg {
+    WorkerInfoMsg {
+        worker_id: worker.worker_id,
+        latest_checkpoint_step: worker.latest_checkpoint_step,
+        latest_local_step: worker.latest_local_step,
+        committed_checkpoints: worker.committed_checkpoints,
+        claimed_shards: worker.claimed_shards,
+        completed_shards: worker.completed_shards,
+    }
+}
+
+fn to_proto_event(event: RuntimeEvent) -> RuntimeEventMsg {
+    RuntimeEventMsg {
+        event_id: event.event_id,
+        timestamp_ms: event.timestamp_ms,
+        level: event.level.as_str().to_string(),
+        event_type: event.event_type,
+        worker_id: event.worker_id,
+        dataset_name: event.dataset_name,
+        shard_id: event.shard_id,
+        step: event.step,
+        message: event.message,
+    }
+}
+
+fn to_proto_run_metric_point(point: RunMetricPoint) -> RunMetricPointMsg {
+    RunMetricPointMsg {
+        run_id: point.run_id,
+        step: point.step,
+        timestamp_ms: point.timestamp_ms,
+        metrics: point.metrics,
+    }
+}
+
+fn to_proto_alert(alert: Alert) -> AlertMsg {
+    AlertMsg {
+        alert_id: alert.alert_id,
+        rule_id: alert.rule_id,
+        alert_type: alert.alert_type,
+        severity: alert.severity,
+        run_id: alert.run_id,
+        message: alert.message,
+        timestamp_ms: alert.timestamp_ms,
+        event_id: alert.event_id,
+    }
+}
+
+fn to_proto_run(run: RunMetadata) -> RunMetadataMsg {
+    RunMetadataMsg {
+        run_id: run.run_id,
+        project_name: run.project_name,
+        run_name: run.run_name,
+        created_at_ms: run.created_at_ms,
+        status: run.status.as_str().to_string(),
+        total_workers_seen: run.total_workers_seen,
+        latest_step: run.latest_step,
+        latest_checkpoint_step: run.latest_checkpoint_step,
+        latest_metric_at_ms: run.latest_metric_at_ms,
+        latest_loss: run.latest_loss,
+        tags: run.tags,
+        loss: run.metrics.loss,
+        learning_rate: run.metrics.learning_rate,
+        throughput: run.metrics.throughput,
+    }
+}
+
+fn to_proto_shard_view(shard: ShardMetadata) -> ShardViewMsg {
+    ShardViewMsg {
+        shard_id: shard.shard_id,
+        start: shard.start_sample,
+        end: shard.end_sample,
+        status: shard.status.as_str().to_string(),
+        worker_id: shard_worker_id(&shard),
+        updated_at_ms: shard.updated_at_ms,
+    }
+}
+
 pub fn default_queue_capacity() -> usize {
     DEFAULT_QUEUE_CAPACITY
 }
@@ -397,14 +1004,38 @@ pub fn default_queue_capacity() -> usize {
 /// Run the gRPC server until it is stopped.
 pub async fn run_grpc_server(
     addr: SocketAddr,
-    checkpoint_dir: PathBuf,
+    storage: Arc<dyn crate::storage::StorageBackend>,
+    dataset_registry_dir: PathBuf,
+    run_registry_dir: PathBuf,
     queue_capacity: usize,
     write_delay_ms: u64,
 ) -> Result<()> {
-    let manager =
-        CheckpointManager::new_with_delay(checkpoint_dir, "checkpoints", write_delay_ms);
+    let event_log = Arc::new(EventLog::new(crate::event_log::DEFAULT_EVENT_LOG_CAPACITY));
+    let manager = CheckpointManager::with_storage_and_event_log(
+        storage,
+        write_delay_ms,
+        Some(Arc::clone(&event_log)),
+    );
+    let dataset_registry = Arc::new(DatasetRegistry::new_with_event_log(
+        dataset_registry_dir,
+        Some(Arc::clone(&event_log)),
+    )?);
+    let run_registry = Arc::new(RunRegistry::new_with_event_log(
+        run_registry_dir,
+        Some(Arc::clone(&event_log)),
+    )?);
+    let alert_engine = Arc::new(AlertEngine::with_defaults());
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-    let service = FaultlineGrpc::new(manager, queue_capacity, shutdown_tx).await?;
+    let service = FaultlineGrpc::new(
+        manager,
+        dataset_registry,
+        run_registry,
+        event_log,
+        alert_engine,
+        queue_capacity,
+        shutdown_tx,
+    )
+    .await?;
 
     eprintln!("Faultline gRPC listening on {addr}");
 
@@ -444,11 +1075,228 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn list_events_returns_dataset_register_event() -> Result<()> {
+        let dir = tempdir()?;
+        let manager = CheckpointManager::new(dir.path().join("checkpoints"), "checkpoints");
+        let event_log = Arc::new(EventLog::new(100));
+        let registry = Arc::new(
+            DatasetRegistry::new_with_event_log(dir.path().join("datasets"), Some(event_log.clone()))
+                .unwrap(),
+        );
+        let (shutdown_tx, _shutdown_rx) = tokio::sync::oneshot::channel();
+        let run_registry = Arc::new(
+            RunRegistry::new_with_event_log(dir.path().join("runs"), Some(event_log.clone()))?,
+        );
+        let service = FaultlineGrpc::new(
+            manager,
+            registry,
+            run_registry,
+            event_log,
+            Arc::new(AlertEngine::with_defaults()),
+            8,
+            shutdown_tx,
+        )
+        .await?;
+
+        service
+            .register_dataset(Request::new(RegisterDatasetRequest {
+                name: "train".to_string(),
+                total_samples: 20,
+                shard_size: 10,
+            }))
+            .await?;
+
+        let events = service
+            .list_events(Request::new(ListEventsRequest { limit: 10 }))
+            .await?
+            .into_inner();
+        assert!(events.ok);
+        assert!(events
+            .events
+            .iter()
+            .any(|event| event.event_type == "dataset_registered"));
+
+        let mut guard = service.runtime.lock().await;
+        if let Some(runtime) = guard.take() {
+            runtime.shutdown().await?;
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn observability_apis_reflect_dataset_and_workers() -> Result<()> {
+        let dir = tempdir()?;
+        let manager = CheckpointManager::new(dir.path().join("checkpoints"), "checkpoints");
+        let registry = Arc::new(DatasetRegistry::new(dir.path().join("datasets")).unwrap());
+        let (shutdown_tx, _shutdown_rx) = tokio::sync::oneshot::channel();
+        let event_log = Arc::new(EventLog::new(100));
+        let run_registry = Arc::new(
+            RunRegistry::new_with_event_log(dir.path().join("runs"), Some(event_log.clone()))?,
+        );
+        let service = FaultlineGrpc::new(
+            manager,
+            registry,
+            run_registry,
+            event_log,
+            Arc::new(AlertEngine::with_defaults()),
+            8,
+            shutdown_tx,
+        )
+        .await?;
+
+        service
+            .register_dataset(Request::new(RegisterDatasetRequest {
+                name: "train".to_string(),
+                total_samples: 30,
+                shard_size: 10,
+            }))
+            .await?;
+
+        let overview = service
+            .get_runtime_overview(Request::new(GetRuntimeOverviewRequest {}))
+            .await?
+            .into_inner();
+        assert!(overview.ok);
+        assert_eq!(overview.total_datasets, 1);
+        assert_eq!(overview.total_shards, 3);
+        assert_eq!(overview.pending_shards, 3);
+
+        service
+            .claim_next_shard(Request::new(ClaimNextShardRequest {
+                worker_id: 1,
+                dataset_name: "train".to_string(),
+            }))
+            .await?;
+
+        let pending = service
+            .list_shards(Request::new(ListShardsRequest {
+                dataset_name: "train".to_string(),
+                status: Some("pending".to_string()),
+            }))
+            .await?
+            .into_inner();
+        assert_eq!(pending.shards.len(), 2);
+
+        let claimed = service
+            .list_shards(Request::new(ListShardsRequest {
+                dataset_name: "train".to_string(),
+                status: Some("claimed".to_string()),
+            }))
+            .await?
+            .into_inner();
+        assert_eq!(claimed.shards.len(), 1);
+        assert_eq!(claimed.shards[0].worker_id, Some(1));
+
+        service
+            .enqueue_worker_bytes(Request::new(EnqueueWorkerBytesRequest {
+                worker_id: 1,
+                local_step: 5,
+                step: 1_000_005,
+                data: b"obs".to_vec(),
+            }))
+            .await?;
+
+        let guard = service.runtime_ref().await;
+        let runtime = FaultlineGrpc::require_runtime(&guard)?;
+        wait_until_committed(runtime, 1_000_005).await?;
+        drop(guard);
+
+        let workers = service
+            .list_workers(Request::new(ListWorkersRequest {}))
+            .await?
+            .into_inner();
+        assert!(workers.workers.iter().any(|worker| worker.worker_id == 1));
+
+        let mut guard = service.runtime.lock().await;
+        if let Some(runtime) = guard.take() {
+            runtime.shutdown().await?;
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn dataset_register_claim_complete_round_trip() -> Result<()> {
+        let dir = tempdir()?;
+        let manager = CheckpointManager::new(dir.path().join("checkpoints"), "checkpoints");
+        let registry = Arc::new(DatasetRegistry::new(dir.path().join("datasets")).unwrap());
+        let (shutdown_tx, _shutdown_rx) = tokio::sync::oneshot::channel();
+        let event_log = Arc::new(EventLog::new(100));
+        let run_registry = Arc::new(
+            RunRegistry::new_with_event_log(dir.path().join("runs"), Some(event_log.clone()))?,
+        );
+        let service = FaultlineGrpc::new(
+            manager,
+            registry,
+            run_registry,
+            event_log,
+            Arc::new(AlertEngine::with_defaults()),
+            8,
+            shutdown_tx,
+        )
+        .await?;
+
+        let register = service
+            .register_dataset(Request::new(RegisterDatasetRequest {
+                name: "train".to_string(),
+                total_samples: 25,
+                shard_size: 10,
+            }))
+            .await?
+            .into_inner();
+        assert!(register.ok);
+        assert_eq!(register.dataset.as_ref().map(|d| d.total_shards), Some(3));
+
+        let claim = service
+            .claim_next_shard(Request::new(ClaimNextShardRequest {
+                worker_id: 1,
+                dataset_name: "train".to_string(),
+            }))
+            .await?
+            .into_inner();
+        assert!(claim.claimed);
+        let shard_id = claim.shard.as_ref().map(|s| s.shard_id).unwrap_or(0);
+
+        let complete = service
+            .complete_shard(Request::new(CompleteShardRequest {
+                worker_id: 1,
+                dataset_name: "train".to_string(),
+                shard_id,
+            }))
+            .await?
+            .into_inner();
+        assert!(complete.ok);
+        assert_eq!(
+            complete.shard.as_ref().map(|s| s.status.as_str()),
+            Some("completed")
+        );
+
+        let mut guard = service.runtime.lock().await;
+        if let Some(runtime) = guard.take() {
+            runtime.shutdown().await?;
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn enqueue_worker_bytes_commits_checkpoint() -> Result<()> {
         let dir = tempdir()?;
         let manager = CheckpointManager::new(dir.path().to_path_buf(), "checkpoints");
         let (shutdown_tx, _shutdown_rx) = tokio::sync::oneshot::channel();
-        let service = FaultlineGrpc::new(manager, 8, shutdown_tx).await?;
+        let registry = Arc::new(DatasetRegistry::new(dir.path().join("datasets")).unwrap());
+        let event_log = Arc::new(EventLog::new(100));
+        let run_registry = Arc::new(
+            RunRegistry::new_with_event_log(dir.path().join("runs"), Some(event_log.clone()))?,
+        );
+        let service = FaultlineGrpc::new(
+            manager,
+            registry,
+            run_registry,
+            event_log,
+            Arc::new(AlertEngine::with_defaults()),
+            8,
+            shutdown_tx,
+        )
+        .await?;
 
         let worker_id = 3_u64;
         let local_step = 4_u64;
@@ -486,7 +1334,21 @@ mod tests {
         let dir = tempdir()?;
         let manager = CheckpointManager::new(dir.path().to_path_buf(), "checkpoints");
         let (shutdown_tx, _shutdown_rx) = tokio::sync::oneshot::channel();
-        let service = FaultlineGrpc::new(manager, 8, shutdown_tx).await?;
+        let registry = Arc::new(DatasetRegistry::new(dir.path().join("datasets")).unwrap());
+        let event_log = Arc::new(EventLog::new(100));
+        let run_registry = Arc::new(
+            RunRegistry::new_with_event_log(dir.path().join("runs"), Some(event_log.clone()))?,
+        );
+        let service = FaultlineGrpc::new(
+            manager,
+            registry,
+            run_registry,
+            event_log,
+            Arc::new(AlertEngine::with_defaults()),
+            8,
+            shutdown_tx,
+        )
+        .await?;
 
         let worker_id = 5_u64;
         let local_step = 6_u64;

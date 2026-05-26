@@ -7,6 +7,8 @@ pub struct RuntimeMetrics {
     pub total_dropped: u64,
     pub total_bytes_written: u64,
     pub total_write_time_ms: u128,
+    pub total_retries: u64,
+    pub total_permanent_failures: u64,
 }
 
 impl RuntimeMetrics {

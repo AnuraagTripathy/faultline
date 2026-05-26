@@ -70,6 +70,8 @@ pub struct MetricsResponse {
     pub total_bytes_written: u64,
     pub total_write_time_ms: u128,
     pub average_write_time_ms: Option<f64>,
+    pub total_retries: u64,
+    pub total_permanent_failures: u64,
 }
 
 impl AsyncServiceResponse {
@@ -212,6 +214,8 @@ impl From<RuntimeMetrics> for MetricsResponse {
             total_bytes_written: metrics.total_bytes_written,
             total_write_time_ms: metrics.total_write_time_ms,
             average_write_time_ms: metrics.average_write_time_ms(),
+            total_retries: metrics.total_retries,
+            total_permanent_failures: metrics.total_permanent_failures,
         }
     }
 }
@@ -220,9 +224,13 @@ pub fn format_job_status(status: CheckpointJobStatus) -> String {
     match status {
         CheckpointJobStatus::Queued => "Queued".to_string(),
         CheckpointJobStatus::Writing => "Writing".to_string(),
+        CheckpointJobStatus::Retrying(attempt) => format!("Retrying({attempt})"),
         CheckpointJobStatus::Committed => "Committed".to_string(),
         CheckpointJobStatus::Dropped => "Dropped".to_string(),
         CheckpointJobStatus::Failed(message) => format!("Failed({message})"),
+        CheckpointJobStatus::FailedPermanent(message) => {
+            format!("FailedPermanent({message})")
+        }
     }
 }
 

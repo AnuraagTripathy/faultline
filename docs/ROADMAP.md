@@ -2,6 +2,11 @@
 
 ## Done
 
+- Runtime event log + dashboard timeline (`ListEvents`, ring buffer)
+- Local dashboard (`dashboard/` — FastAPI + static UI, read-only)
+- Observability APIs (`GetRuntimeOverview`, `ListWorkers`, `ListShards`)
+- Dataset registry and shard assignment (`DatasetRegistry`, gRPC + Python SDK)
+- Dataset worker simulation (claim, crash, stale release, complete all shards)
 - Atomic checkpoint writes (temp file → fsync → rename) and `metadata.json`
 - Rust CLI: save, list, latest, load, prune
 - Python SDK: `Runtime`, `PersistentRuntime`, `AsyncPersistentRuntime`

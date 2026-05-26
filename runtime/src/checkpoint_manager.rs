@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 
+use crate::event_log::{record_event, EventLevel, EventLog, RuntimeEventInput};
 use crate::metadata::{CheckpointEntry, CheckpointMetadata};
 use crate::storage::{LocalStorageBackend, StorageBackend};
 
@@ -13,6 +14,7 @@ use crate::storage::{LocalStorageBackend, StorageBackend};
 pub struct CheckpointManager {
     storage: Arc<dyn StorageBackend>,
     write_delay_ms: u64,
+    event_log: Option<Arc<EventLog>>,
 }
 
 impl CheckpointManager {
@@ -25,15 +27,37 @@ impl CheckpointManager {
         path_prefix: impl Into<String>,
         write_delay_ms: u64,
     ) -> Self {
+        Self::new_with_delay_and_event_log(checkpoint_dir, path_prefix, write_delay_ms, None)
+    }
+
+    pub fn new_with_delay_and_event_log(
+        checkpoint_dir: PathBuf,
+        path_prefix: impl Into<String>,
+        write_delay_ms: u64,
+        event_log: Option<Arc<EventLog>>,
+    ) -> Self {
         let storage = Arc::new(LocalStorageBackend::new(checkpoint_dir, path_prefix));
-        Self::with_storage(storage, write_delay_ms)
+        Self::with_storage_and_event_log(storage, write_delay_ms, event_log)
     }
 
     pub fn with_storage(storage: Arc<dyn StorageBackend>, write_delay_ms: u64) -> Self {
+        Self::with_storage_and_event_log(storage, write_delay_ms, None)
+    }
+
+    pub fn with_storage_and_event_log(
+        storage: Arc<dyn StorageBackend>,
+        write_delay_ms: u64,
+        event_log: Option<Arc<EventLog>>,
+    ) -> Self {
         Self {
             storage,
             write_delay_ms,
+            event_log,
         }
+    }
+
+    pub fn event_log(&self) -> Option<Arc<EventLog>> {
+        self.event_log.clone()
     }
 
     pub fn write_delay_ms(&self) -> u64 {
@@ -167,6 +191,15 @@ impl CheckpointManager {
         };
         self.persist_metadata(&pruned)?;
 
+        record_event(
+            &self.event_log,
+            RuntimeEventInput::new(
+                EventLevel::Info,
+                "prune_completed",
+                format!("pruned {deleted} checkpoint file(s), keep_last={keep_last}"),
+            ),
+        );
+
         Ok(deleted)
     }
 
@@ -223,6 +256,17 @@ impl CheckpointManager {
             checkpoints: retained,
         };
         self.persist_metadata(&pruned)?;
+
+        record_event(
+            &self.event_log,
+            RuntimeEventInput::new(
+                EventLevel::Info,
+                "prune_completed",
+                format!(
+                    "pruned {deleted} checkpoint file(s), keep_last_per_worker={keep_last_per_worker}"
+                ),
+            ),
+        );
 
         Ok(deleted)
     }

@@ -1,0 +1,118 @@
+:root {
+  --bg: #0a0e14;
+  --surface: #141c28;
+  --text: #e8edf4;
+  --muted: #8b9cb3;
+  --accent: #5b9cff;
+  --border: #243044;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.hero {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 3rem 1.5rem 2rem;
+  text-align: center;
+}
+
+.eyebrow {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 0 0 0.5rem;
+}
+
+h1 {
+  font-size: 2rem;
+  margin: 0 0 1rem;
+  line-height: 1.2;
+}
+
+.lead {
+  color: var(--muted);
+  font-size: 1.05rem;
+}
+
+.cta-row {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 1.5rem;
+}
+
+.btn {
+  display: inline-block;
+  padding: 0.6rem 1.1rem;
+  border-radius: 8px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-secondary {
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 1.5rem 3rem;
+}
+
+.card-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.25rem;
+}
+
+.card h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+footer {
+  text-align: center;
+  padding: 2rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+footer a {
+  color: var(--accent);
+}
+
+code {
+  font-size: 0.85em;
+  background: rgba(91, 156, 255, 0.1);
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+}

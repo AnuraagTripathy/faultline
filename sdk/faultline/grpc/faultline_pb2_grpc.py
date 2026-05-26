@@ -75,6 +75,96 @@ class FaultlineServiceStub(object):
                 request_serializer=faultline__pb2.ShutdownRequest.SerializeToString,
                 response_deserializer=faultline__pb2.GenericResponse.FromString,
                 _registered_method=True)
+        self.RegisterDataset = channel.unary_unary(
+                '/faultline.FaultlineService/RegisterDataset',
+                request_serializer=faultline__pb2.RegisterDatasetRequest.SerializeToString,
+                response_deserializer=faultline__pb2.RegisterDatasetResponse.FromString,
+                _registered_method=True)
+        self.ListDatasets = channel.unary_unary(
+                '/faultline.FaultlineService/ListDatasets',
+                request_serializer=faultline__pb2.ListDatasetsRequest.SerializeToString,
+                response_deserializer=faultline__pb2.ListDatasetsResponse.FromString,
+                _registered_method=True)
+        self.ClaimNextShard = channel.unary_unary(
+                '/faultline.FaultlineService/ClaimNextShard',
+                request_serializer=faultline__pb2.ClaimNextShardRequest.SerializeToString,
+                response_deserializer=faultline__pb2.ClaimNextShardResponse.FromString,
+                _registered_method=True)
+        self.CompleteShard = channel.unary_unary(
+                '/faultline.FaultlineService/CompleteShard',
+                request_serializer=faultline__pb2.CompleteShardRequest.SerializeToString,
+                response_deserializer=faultline__pb2.CompleteShardResponse.FromString,
+                _registered_method=True)
+        self.ReleaseStaleShards = channel.unary_unary(
+                '/faultline.FaultlineService/ReleaseStaleShards',
+                request_serializer=faultline__pb2.ReleaseStaleShardsRequest.SerializeToString,
+                response_deserializer=faultline__pb2.ReleaseStaleShardsResponse.FromString,
+                _registered_method=True)
+        self.GetRuntimeOverview = channel.unary_unary(
+                '/faultline.FaultlineService/GetRuntimeOverview',
+                request_serializer=faultline__pb2.GetRuntimeOverviewRequest.SerializeToString,
+                response_deserializer=faultline__pb2.GetRuntimeOverviewResponse.FromString,
+                _registered_method=True)
+        self.ListWorkers = channel.unary_unary(
+                '/faultline.FaultlineService/ListWorkers',
+                request_serializer=faultline__pb2.ListWorkersRequest.SerializeToString,
+                response_deserializer=faultline__pb2.ListWorkersResponse.FromString,
+                _registered_method=True)
+        self.ListShards = channel.unary_unary(
+                '/faultline.FaultlineService/ListShards',
+                request_serializer=faultline__pb2.ListShardsRequest.SerializeToString,
+                response_deserializer=faultline__pb2.ListShardsResponse.FromString,
+                _registered_method=True)
+        self.ListEvents = channel.unary_unary(
+                '/faultline.FaultlineService/ListEvents',
+                request_serializer=faultline__pb2.ListEventsRequest.SerializeToString,
+                response_deserializer=faultline__pb2.ListEventsResponse.FromString,
+                _registered_method=True)
+        self.CreateRun = channel.unary_unary(
+                '/faultline.FaultlineService/CreateRun',
+                request_serializer=faultline__pb2.CreateRunRequest.SerializeToString,
+                response_deserializer=faultline__pb2.CreateRunResponse.FromString,
+                _registered_method=True)
+        self.ListRuns = channel.unary_unary(
+                '/faultline.FaultlineService/ListRuns',
+                request_serializer=faultline__pb2.ListRunsRequest.SerializeToString,
+                response_deserializer=faultline__pb2.ListRunsResponse.FromString,
+                _registered_method=True)
+        self.GetRun = channel.unary_unary(
+                '/faultline.FaultlineService/GetRun',
+                request_serializer=faultline__pb2.GetRunRequest.SerializeToString,
+                response_deserializer=faultline__pb2.GetRunResponse.FromString,
+                _registered_method=True)
+        self.UpdateRunMetrics = channel.unary_unary(
+                '/faultline.FaultlineService/UpdateRunMetrics',
+                request_serializer=faultline__pb2.UpdateRunMetricsRequest.SerializeToString,
+                response_deserializer=faultline__pb2.UpdateRunMetricsResponse.FromString,
+                _registered_method=True)
+        self.LogRunMetrics = channel.unary_unary(
+                '/faultline.FaultlineService/LogRunMetrics',
+                request_serializer=faultline__pb2.LogRunMetricsRequest.SerializeToString,
+                response_deserializer=faultline__pb2.LogRunMetricsResponse.FromString,
+                _registered_method=True)
+        self.ListRunMetrics = channel.unary_unary(
+                '/faultline.FaultlineService/ListRunMetrics',
+                request_serializer=faultline__pb2.ListRunMetricsRequest.SerializeToString,
+                response_deserializer=faultline__pb2.ListRunMetricsResponse.FromString,
+                _registered_method=True)
+        self.CompleteRun = channel.unary_unary(
+                '/faultline.FaultlineService/CompleteRun',
+                request_serializer=faultline__pb2.CompleteRunRequest.SerializeToString,
+                response_deserializer=faultline__pb2.CompleteRunResponse.FromString,
+                _registered_method=True)
+        self.ListAlerts = channel.unary_unary(
+                '/faultline.FaultlineService/ListAlerts',
+                request_serializer=faultline__pb2.ListAlertsRequest.SerializeToString,
+                response_deserializer=faultline__pb2.ListAlertsResponse.FromString,
+                _registered_method=True)
+        self.EvaluateAlerts = channel.unary_unary(
+                '/faultline.FaultlineService/EvaluateAlerts',
+                request_serializer=faultline__pb2.EvaluateAlertsRequest.SerializeToString,
+                response_deserializer=faultline__pb2.EvaluateAlertsResponse.FromString,
+                _registered_method=True)
 
 
 class FaultlineServiceServicer(object):
@@ -129,6 +219,114 @@ class FaultlineServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def RegisterDataset(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListDatasets(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ClaimNextShard(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CompleteShard(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ReleaseStaleShards(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetRuntimeOverview(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListWorkers(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListShards(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListEvents(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CreateRun(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListRuns(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetRun(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def UpdateRunMetrics(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def LogRunMetrics(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListRunMetrics(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CompleteRun(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListAlerts(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def EvaluateAlerts(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_FaultlineServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -171,6 +369,96 @@ def add_FaultlineServiceServicer_to_server(servicer, server):
                     servicer.Shutdown,
                     request_deserializer=faultline__pb2.ShutdownRequest.FromString,
                     response_serializer=faultline__pb2.GenericResponse.SerializeToString,
+            ),
+            'RegisterDataset': grpc.unary_unary_rpc_method_handler(
+                    servicer.RegisterDataset,
+                    request_deserializer=faultline__pb2.RegisterDatasetRequest.FromString,
+                    response_serializer=faultline__pb2.RegisterDatasetResponse.SerializeToString,
+            ),
+            'ListDatasets': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListDatasets,
+                    request_deserializer=faultline__pb2.ListDatasetsRequest.FromString,
+                    response_serializer=faultline__pb2.ListDatasetsResponse.SerializeToString,
+            ),
+            'ClaimNextShard': grpc.unary_unary_rpc_method_handler(
+                    servicer.ClaimNextShard,
+                    request_deserializer=faultline__pb2.ClaimNextShardRequest.FromString,
+                    response_serializer=faultline__pb2.ClaimNextShardResponse.SerializeToString,
+            ),
+            'CompleteShard': grpc.unary_unary_rpc_method_handler(
+                    servicer.CompleteShard,
+                    request_deserializer=faultline__pb2.CompleteShardRequest.FromString,
+                    response_serializer=faultline__pb2.CompleteShardResponse.SerializeToString,
+            ),
+            'ReleaseStaleShards': grpc.unary_unary_rpc_method_handler(
+                    servicer.ReleaseStaleShards,
+                    request_deserializer=faultline__pb2.ReleaseStaleShardsRequest.FromString,
+                    response_serializer=faultline__pb2.ReleaseStaleShardsResponse.SerializeToString,
+            ),
+            'GetRuntimeOverview': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetRuntimeOverview,
+                    request_deserializer=faultline__pb2.GetRuntimeOverviewRequest.FromString,
+                    response_serializer=faultline__pb2.GetRuntimeOverviewResponse.SerializeToString,
+            ),
+            'ListWorkers': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListWorkers,
+                    request_deserializer=faultline__pb2.ListWorkersRequest.FromString,
+                    response_serializer=faultline__pb2.ListWorkersResponse.SerializeToString,
+            ),
+            'ListShards': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListShards,
+                    request_deserializer=faultline__pb2.ListShardsRequest.FromString,
+                    response_serializer=faultline__pb2.ListShardsResponse.SerializeToString,
+            ),
+            'ListEvents': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListEvents,
+                    request_deserializer=faultline__pb2.ListEventsRequest.FromString,
+                    response_serializer=faultline__pb2.ListEventsResponse.SerializeToString,
+            ),
+            'CreateRun': grpc.unary_unary_rpc_method_handler(
+                    servicer.CreateRun,
+                    request_deserializer=faultline__pb2.CreateRunRequest.FromString,
+                    response_serializer=faultline__pb2.CreateRunResponse.SerializeToString,
+            ),
+            'ListRuns': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListRuns,
+                    request_deserializer=faultline__pb2.ListRunsRequest.FromString,
+                    response_serializer=faultline__pb2.ListRunsResponse.SerializeToString,
+            ),
+            'GetRun': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetRun,
+                    request_deserializer=faultline__pb2.GetRunRequest.FromString,
+                    response_serializer=faultline__pb2.GetRunResponse.SerializeToString,
+            ),
+            'UpdateRunMetrics': grpc.unary_unary_rpc_method_handler(
+                    servicer.UpdateRunMetrics,
+                    request_deserializer=faultline__pb2.UpdateRunMetricsRequest.FromString,
+                    response_serializer=faultline__pb2.UpdateRunMetricsResponse.SerializeToString,
+            ),
+            'LogRunMetrics': grpc.unary_unary_rpc_method_handler(
+                    servicer.LogRunMetrics,
+                    request_deserializer=faultline__pb2.LogRunMetricsRequest.FromString,
+                    response_serializer=faultline__pb2.LogRunMetricsResponse.SerializeToString,
+            ),
+            'ListRunMetrics': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListRunMetrics,
+                    request_deserializer=faultline__pb2.ListRunMetricsRequest.FromString,
+                    response_serializer=faultline__pb2.ListRunMetricsResponse.SerializeToString,
+            ),
+            'CompleteRun': grpc.unary_unary_rpc_method_handler(
+                    servicer.CompleteRun,
+                    request_deserializer=faultline__pb2.CompleteRunRequest.FromString,
+                    response_serializer=faultline__pb2.CompleteRunResponse.SerializeToString,
+            ),
+            'ListAlerts': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListAlerts,
+                    request_deserializer=faultline__pb2.ListAlertsRequest.FromString,
+                    response_serializer=faultline__pb2.ListAlertsResponse.SerializeToString,
+            ),
+            'EvaluateAlerts': grpc.unary_unary_rpc_method_handler(
+                    servicer.EvaluateAlerts,
+                    request_deserializer=faultline__pb2.EvaluateAlertsRequest.FromString,
+                    response_serializer=faultline__pb2.EvaluateAlertsResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -390,6 +678,492 @@ class FaultlineService(object):
             '/faultline.FaultlineService/Shutdown',
             faultline__pb2.ShutdownRequest.SerializeToString,
             faultline__pb2.GenericResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RegisterDataset(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/faultline.FaultlineService/RegisterDataset',
+            faultline__pb2.RegisterDatasetRequest.SerializeToString,
+            faultline__pb2.RegisterDatasetResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListDatasets(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/faultline.FaultlineService/ListDatasets',
+            faultline__pb2.ListDatasetsRequest.SerializeToString,
+            faultline__pb2.ListDatasetsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ClaimNextShard(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/faultline.FaultlineService/ClaimNextShard',
+            faultline__pb2.ClaimNextShardRequest.SerializeToString,
+            faultline__pb2.ClaimNextShardResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CompleteShard(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/faultline.FaultlineService/CompleteShard',
+            faultline__pb2.CompleteShardRequest.SerializeToString,
+            faultline__pb2.CompleteShardResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ReleaseStaleShards(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/faultline.FaultlineService/ReleaseStaleShards',
+            faultline__pb2.ReleaseStaleShardsRequest.SerializeToString,
+            faultline__pb2.ReleaseStaleShardsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetRuntimeOverview(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/faultline.FaultlineService/GetRuntimeOverview',
+            faultline__pb2.GetRuntimeOverviewRequest.SerializeToString,
+            faultline__pb2.GetRuntimeOverviewResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListWorkers(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/faultline.FaultlineService/ListWorkers',
+            faultline__pb2.ListWorkersRequest.SerializeToString,
+            faultline__pb2.ListWorkersResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListShards(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/faultline.FaultlineService/ListShards',
+            faultline__pb2.ListShardsRequest.SerializeToString,
+            faultline__pb2.ListShardsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListEvents(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/faultline.FaultlineService/ListEvents',
+            faultline__pb2.ListEventsRequest.SerializeToString,
+            faultline__pb2.ListEventsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CreateRun(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/faultline.FaultlineService/CreateRun',
+            faultline__pb2.CreateRunRequest.SerializeToString,
+            faultline__pb2.CreateRunResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListRuns(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/faultline.FaultlineService/ListRuns',
+            faultline__pb2.ListRunsRequest.SerializeToString,
+            faultline__pb2.ListRunsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetRun(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/faultline.FaultlineService/GetRun',
+            faultline__pb2.GetRunRequest.SerializeToString,
+            faultline__pb2.GetRunResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def UpdateRunMetrics(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/faultline.FaultlineService/UpdateRunMetrics',
+            faultline__pb2.UpdateRunMetricsRequest.SerializeToString,
+            faultline__pb2.UpdateRunMetricsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def LogRunMetrics(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/faultline.FaultlineService/LogRunMetrics',
+            faultline__pb2.LogRunMetricsRequest.SerializeToString,
+            faultline__pb2.LogRunMetricsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListRunMetrics(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/faultline.FaultlineService/ListRunMetrics',
+            faultline__pb2.ListRunMetricsRequest.SerializeToString,
+            faultline__pb2.ListRunMetricsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CompleteRun(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/faultline.FaultlineService/CompleteRun',
+            faultline__pb2.CompleteRunRequest.SerializeToString,
+            faultline__pb2.CompleteRunResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListAlerts(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/faultline.FaultlineService/ListAlerts',
+            faultline__pb2.ListAlertsRequest.SerializeToString,
+            faultline__pb2.ListAlertsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def EvaluateAlerts(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/faultline.FaultlineService/EvaluateAlerts',
+            faultline__pb2.EvaluateAlertsRequest.SerializeToString,
+            faultline__pb2.EvaluateAlertsResponse.FromString,
             options,
             channel_credentials,
             insecure,

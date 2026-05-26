@@ -34,6 +34,10 @@ Thumbs.db
 
 # Benchmarks / generated artifacts
 checkpoints/
+datasets/
+runs/
+cloud/data/
+cloud/data/checkpoints/
 benchmarks/output/
 tmp/
 temp/

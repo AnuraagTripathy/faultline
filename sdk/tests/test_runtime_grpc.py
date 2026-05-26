@@ -182,5 +182,28 @@ class TestRuntimeGrpc(unittest.TestCase):
         self.assertNotIn("cwd", mock_popen.call_args.kwargs)
 
 
+    def test_shutdown_skips_server_rpc_when_start_server_false(self) -> None:
+        runtime = GrpcAsyncRuntime(runtime_dir="runtime", start_server=False)
+        stub = MagicMock()
+        runtime._stub = stub
+
+        runtime.shutdown()
+
+        stub.Shutdown.assert_not_called()
+
+    def test_shutdown_calls_server_rpc_when_start_server_true(self) -> None:
+        runtime = GrpcAsyncRuntime(runtime_dir="runtime", start_server=False)
+        stub = MagicMock()
+        runtime._stub = stub
+        runtime.start_server = True
+        response = MagicMock()
+        response.ok = True
+        stub.Shutdown.return_value = response
+
+        runtime.shutdown()
+
+        stub.Shutdown.assert_called_once()
+
+
 if __name__ == "__main__":
     unittest.main()

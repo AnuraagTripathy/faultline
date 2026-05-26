@@ -229,6 +229,33 @@ runtime.enqueue_worker_pickle_checkpoint_stream(
 )
 ```
 
+**Dataset registry (Version 11.0)** — shard assignment on the same gRPC server:
+
+```python
+runtime.register_dataset("fake-training", total_samples=100, shard_size=10)
+shard = runtime.claim_next_shard(worker_id=0, dataset_name="fake-training")
+runtime.complete_shard(worker_id=0, dataset_name="fake-training", shard_id=shard["shard_id"])
+released = runtime.release_stale_shards(timeout_ms=500)
+```
+
+Example: `python sdk/examples/dataset_worker_simulation.py`
+
+**Observability (Version 12.0)** — read-only runtime inspection:
+
+```python
+overview = runtime.get_runtime_overview()
+workers = runtime.list_workers()
+shards = runtime.list_shards("fake-training", status="pending")
+```
+
+Example: `python sdk/examples/observability_usage.py`
+
+**Event log (Version 12.2)** — recent runtime timeline:
+
+```python
+events = runtime.list_events(limit=100)
+```
+
 Example: `python sdk/examples/grpc_bytes_usage.py`  
 Example: `python sdk/examples/grpc_stream_usage.py`  
 Benchmark: `python sdk/benchmarks/grpc_bytes_benchmark.py` (file path vs bytes)  

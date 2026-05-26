@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Faultline Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  </head>
+  <body>
+    <header class="header">
+      <div>
+        <h1>Faultline</h1>
+        <p class="subtitle">Local runtime observability</p>
+      </div>
+      <div class="header-actions">
+        <span id="health-badge" class="badge badge-unknown">checking…</span>
+        <label class="auto-refresh">
+          <input type="checkbox" id="auto-refresh" checked />
+          Auto-refresh (2s)
+        </label>
+        <button type="button" id="refresh-btn" class="btn">Refresh</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="section">
+        <h2>Overview</h2>
+        <div id="overview-cards" class="cards"></div>
+        <div id="metrics-panel" class="metrics-panel"></div>
+      </section>
+
+      <section class="section">
+        <h2>Alerts</h2>
+        <div class="table-wrap">
+          <table id="alerts-table">
+            <thead>
+              <tr>
+                <th>Severity</th>
+                <th>Run</th>
+                <th>Type</th>
+                <th>Message</th>
+                <th>Time</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Runs</h2>
+        <div class="table-wrap">
+          <table id="runs-table">
+            <thead>
+              <tr>
+                <th>Run</th>
+                <th>Project</th>
+                <th>Status</th>
+                <th>Last updated</th>
+                <th>Step</th>
+                <th>Loss</th>
+                <th>Checkpoint</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div id="run-chart-panel" class="run-chart-panel hidden">
+          <div class="run-chart-header">
+            <h3 id="run-chart-title">Run metrics</h3>
+            <label class="metric-select-label">
+              Metric
+              <select id="run-metric-select">
+                <option value="loss">loss</option>
+                <option value="learning_rate">learning_rate</option>
+                <option value="step_time_ms">step_time_ms</option>
+                <option value="cpu_percent">cpu_percent</option>
+                <option value="memory_percent">memory_percent</option>
+                <option value="gpu_memory_allocated_mb">gpu_memory_allocated_mb</option>
+              </select>
+            </label>
+          </div>
+          <canvas id="run-metrics-chart" height="120"></canvas>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Workers</h2>
+        <div class="table-wrap">
+          <table id="workers-table">
+            <thead>
+              <tr>
+                <th>Worker</th>
+                <th>Latest step</th>
+                <th>Local step</th>
+                <th>Checkpoints</th>
+                <th>Claimed shards</th>
+                <th>Completed shards</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2>Recent events</h2>
+        <div class="table-wrap events-wrap">
+          <table id="events-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Level</th>
+                <th>Type</th>
+                <th>Worker</th>
+                <th>Dataset</th>
+                <th>Shard</th>
+                <th>Step</th>
+                <th>Message</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-header">
+          <h2>Shards</h2>
+          <div class="filters">
+            <label>
+              Dataset
+              <select id="dataset-select">
+                <option value="">(none)</option>
+              </select>
+            </label>
+            <label>
+              Status
+              <select id="status-filter">
+                <option value="">All</option>
+                <option value="pending">Pending</option>
+                <option value="claimed">Claimed</option>
+                <option value="completed">Completed</option>
+                <option value="failed">Failed</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="shards-table">
+            <thead>
+              <tr>
+                <th>Shard</th>
+                <th>Start</th>
+                <th>End</th>
+                <th>Status</th>
+                <th>Worker</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <p id="error-banner" class="error-banner hidden"></p>
+      <p id="last-updated" class="last-updated"></p>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
