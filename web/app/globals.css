@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-background text-foreground antialiased;
+}
+
+a {
+  @apply text-accent underline-offset-4 hover:text-accent-hover;
+}
+
+@layer components {
+  .input-field {
+    @apply mt-1.5 w-full rounded-lg border border-border bg-surface-elevated px-3 py-2.5 text-sm text-foreground placeholder:text-subtle focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20;
+  }
+
+  .site-nav-link {
+    @apply text-sm text-muted no-underline hover:text-foreground hover:no-underline transition-colors;
+  }
+
+  .section-label {
+    @apply text-[11px] uppercase tracking-[0.14em] text-accent font-semibold;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center font-medium text-surface-elevated bg-accent px-5 py-2.5 rounded-lg no-underline hover:no-underline hover:bg-accent-hover transition-colors text-sm;
+  }
+
+  .btn-ghost {
+    @apply text-muted no-underline hover:no-underline hover:text-foreground text-sm font-medium;
+  }
+}
+
+.prose-faultline h2 {
+  @apply text-lg font-medium text-foreground mt-10 mb-3;
+}
+
+.prose-faultline strong {
+  @apply text-foreground font-medium;
+}
+
+.prose-faultline code {
+  @apply text-accent text-sm font-mono bg-accent-soft px-1.5 py-0.5 rounded;
+}
+
+.prose-faultline p {
+  @apply text-muted leading-relaxed;
+}

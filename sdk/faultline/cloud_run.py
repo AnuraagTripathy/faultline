@@ -47,9 +47,29 @@ class CloudRun:
         metadata = client.start_run(project, run_name, tags=tags)
         return cls(client, project=project, run_name=run_name, metadata=metadata)
 
+    @classmethod
+    def attach(
+        cls,
+        run_id: str,
+        *,
+        api_key: str,
+        base_url: str = "http://127.0.0.1:8080",
+    ) -> CloudRun:
+        """Connect to an existing cloud run (for resume after crash or Ctrl+C)."""
+        client = CloudIngestClient(base_url=base_url, api_key=api_key)
+        metadata = client.get_run(run_id)
+        project = str(metadata.get("project_name", "default"))
+        run_name = str(metadata.get("run_name", run_id))
+        return cls(client, project=project, run_name=run_name, metadata=metadata)
+
     @property
     def metadata(self) -> dict[str, Any]:
         return dict(self._metadata)
+
+    @property
+    def initial_resume_step(self) -> int:
+        """Set when ``faultline.start(..., resume_if_available=True)``."""
+        return int(getattr(self, "_initial_resume_step", 0))
 
     def refresh(self) -> dict[str, Any]:
         self._metadata = self._client.get_run(self.run_id)
@@ -75,6 +95,19 @@ class CloudRun:
             raise ValueError("log() requires at least one metric keyword")
         resolved_step = step if step is not None else self._next_step()
         return self.log_metrics({key: float(value) for key, value in metrics.items()}, step=resolved_step)
+
+    def log_progress(
+        self,
+        step: int,
+        *,
+        total_steps: int = 0,
+        **metrics: float,
+    ) -> dict[str, Any]:
+        """Log metrics plus optional ``progress_pct`` when ``total_steps`` is set."""
+        payload = {key: float(value) for key, value in metrics.items()}
+        if total_steps > 0:
+            payload["progress_pct"] = min(100.0, 100.0 * float(step) / float(total_steps))
+        return self.log(step=step, **payload)
 
     def _next_step(self) -> int:
         self._step_counter += 1
@@ -123,6 +156,51 @@ class CloudRun:
         )
         return self.checkpoint(payload, step=step)
 
+    def register_launch_command(
+        self,
+        command: list[str],
+        *,
+        working_dir: str | None = None,
+        environment: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Register how to relaunch this run locally (``subprocess``)."""
+        body: dict[str, Any] = {
+            "launch_type": "local_command",
+            "command": command,
+        }
+        if working_dir is not None:
+            body["working_dir"] = working_dir
+        if environment is not None:
+            body["environment"] = environment
+        return self._client.register_launch_config(self.run_id, body)
+
+    def register_slurm_script(
+        self,
+        script_path: str,
+        *,
+        working_dir: str | None = None,
+        environment: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Register a Slurm script path for ``sbatch`` relaunch."""
+        body: dict[str, Any] = {
+            "launch_type": "slurm_script",
+            "script_path": script_path,
+        }
+        if working_dir is not None:
+            body["working_dir"] = working_dir
+        if environment is not None:
+            body["environment"] = environment
+        return self._client.register_launch_config(self.run_id, body)
+
+    def resume(self) -> dict[str, Any]:
+        """
+        Relaunch this run using stored launch config (manual / API-triggered only).
+
+        Requires a healthy latest checkpoint and a prior
+        :meth:`register_launch_command` or :meth:`register_slurm_script`.
+        """
+        return self._client.resume_run(self.run_id)
+
     def restore_latest(
         self,
         *,
@@ -132,7 +210,12 @@ class CloudRun:
         """
         Download the latest checkpoint and optionally restore ``model`` / ``optimizer``.
 
-        Returns the checkpoint step, or ``0`` if no checkpoint exists.
+        Returns the step to continue training from (use as loop start), or ``0``
+        if no checkpoint exists. Typical pattern::
+
+            start_step = run.restore_latest(model=model, optimizer=optimizer)
+            for step in range(start_step, max_steps):
+                ...
         """
         state = self.load_latest_checkpoint_or_none()
         if state is None or not isinstance(state, dict):
@@ -196,12 +279,52 @@ class CloudRun:
         )
         return dict(self._metadata)
 
-    def fail(self, message: str = "run failed") -> dict[str, Any]:
+    def recovery(self) -> dict[str, Any]:
+        """Fetch crash-to-resume summary (checkpoint age, lost steps, resume snippets)."""
+        return self._client.get_recovery(self.run_id)
+
+    def print_resume_instructions(self, recovery: dict[str, Any] | None = None) -> None:
+        """Print human-readable resume guidance after a failure or crash."""
+        info = recovery if recovery is not None else self.recovery()
+        print("=== Faultline recovery ===")
+        print(f"Run:        {info.get('project_name')} / {info.get('run_name')} ({info.get('run_id')})")
+        print(f"Status:     {info.get('status')}")
+        print(f"Badge:      {info.get('recovery_badge')}")
+        print(f"Restore:    {info.get('restore_status')}")
+        print(f"Recommend:  {info.get('recommendation')}")
+        print(f"Last step:  {info.get('latest_step')}")
+        print(f"Checkpoint: step {info.get('latest_checkpoint_step')} (health: {info.get('checkpoint_health')})")
+        print(f"Lost steps: {info.get('estimated_lost_steps')}")
+        if info.get("checkpoint_age_ms") is not None:
+            age_s = int(info["checkpoint_age_ms"]) / 1000.0
+            print(f"Checkpoint age: {age_s:.1f}s ago")
+        print()
+        print("Inline restore:")
+        print(info.get("inline_restore_snippet", "").rstrip())
+        print()
+        print("Full resume script:")
+        print(info.get("resume_snippet", "").rstrip())
+        print()
+
+    def fail(
+        self,
+        reason: str | None = None,
+        *,
+        message: str | None = None,
+    ) -> dict[str, Any]:
+        """Mark the run failed and preserve recovery metadata in the event message."""
+        text = (reason or message or "run failed").strip()
+        ckpt_step = int(self._metadata.get("latest_checkpoint_step", 0))
+        if ckpt_step > 0:
+            text = (
+                f"{text} — resume from checkpoint step {ckpt_step} "
+                f"(GET /v1/runs/{self.run_id}/recovery)"
+            )
         self._metadata = self._client.log_event(
             self.run_id,
             event_type="faultline.run.failed",
             level="error",
-            message=message,
+            message=text,
         )
         return dict(self._metadata)
 

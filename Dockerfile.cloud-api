@@ -1,0 +1,31 @@
+# Faultline Cloud API — v24.0
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN pip install --no-cache-dir \
+    fastapi \
+    uvicorn[standard] \
+    pydantic \
+    python-multipart \
+    bcrypt \
+    PyJWT \
+    sqlalchemy \
+    psycopg[binary] \
+    boto3 \
+    alembic
+
+COPY cloud/ /app/cloud/
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app \
+    FAULTLINE_CLOUD_VERSION=24.0
+
+RUN chmod +x /app/cloud/scripts/start_api.sh
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=15s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"
+
+CMD ["/app/cloud/scripts/start_api.sh"]

@@ -8,12 +8,12 @@
   </head>
   <body>
     <header class="hero">
-      <p class="eyebrow">Local dev preview · Version 16.2–16.3</p>
-      <h1>Monitor and recover ML training jobs from anywhere</h1>
+      <p class="eyebrow">Local dev preview · Version 17.2</p>
+      <h1>Faultline does not just track runs — it helps you resume failed training</h1>
       <p class="lead">
-        Long-running training fails on laptops, clusters, and cloud VMs. Faultline Cloud
-        tracks metrics, checkpoints, and run status so you can see progress and restore
-        after interruptions.
+        When a laptop, HPC node, or cloud VM dies mid-training, Faultline shows your latest
+        checkpoint, lost steps, checkpoint health, and copy-paste resume code. Less digging
+        through logs than generic experiment trackers.
       </p>
       <div class="cta-row">
         <a class="btn btn-primary" href="/dashboard">View Dashboard</a>
@@ -31,11 +31,11 @@
           </p>
         </article>
         <article class="card">
-          <h2>The solution</h2>
+          <h2>Crash-to-resume</h2>
           <p>
-            Stream <strong>metrics</strong> and <strong>events</strong> from your script.
-            Upload <strong>checkpoints</strong> to the cloud API. Use the dashboard to
-            inspect runs and download the latest state.
+            The <strong>Recovery</strong> panel shows checkpoint step vs last logged step,
+            estimated lost work, health checks, and resume + Slurm snippets. Call
+            <code>run.recovery()</code> from Python after a failure.
           </p>
         </article>
         <article class="card">

@@ -15,6 +15,11 @@ const links = [
   { href: "/account", label: "Account" },
 ];
 
+const operatorLinks =
+  process.env.NEXT_PUBLIC_FAULTLINE_OPERATOR_NAV === "true"
+    ? [{ href: "/admin/infrastructure", label: "Infrastructure" }]
+    : [];
+
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
@@ -38,7 +43,7 @@ export function Sidebar() {
         <Logo href="/dashboard" iconSize={34} textClassName="text-[18px]" />
       </div>
       <nav className="flex-1 px-3 py-4 space-y-0.5">
-        {links.map(({ href, label }) => {
+        {[...links, ...operatorLinks].map(({ href, label }) => {
           const active =
             pathname === href ||
             (href !== "/dashboard" && pathname.startsWith(href));

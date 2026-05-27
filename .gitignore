@@ -26,16 +26,18 @@ Thumbs.db
 # Logs
 *.log
 
-# Environment variables
+# Environment variables (never commit secrets)
 .env
-.env.*
 .env.local
 .env.*.local
+# Committable templates:
+!.env*.example
+!.env.example
 
-# Benchmarks / generated artifacts
-checkpoints/
-datasets/
-runs/
+# Benchmarks / generated artifacts (repo root only — not web/app/(app)/runs)
+/checkpoints/
+/datasets/
+/runs/
 cloud/data/
 cloud/data/checkpoints/
 benchmarks/output/

@@ -18,6 +18,7 @@ for step in range(step, 10):
     if step % 5 == 0:
         run.save(model=model, optimizer=optimizer, step=step)
 
+run.register_launch_command(["python", "train.py"])
 run.complete()`;
 
 const healthBadge = document.getElementById("health-badge");
@@ -31,6 +32,24 @@ const chartPanel = document.getElementById("chart-panel");
 const chartTitle = document.getElementById("chart-title");
 const metricSelect = document.getElementById("metric-select");
 const metricsChartCanvas = document.getElementById("metrics-chart");
+const recoveryPanel = document.getElementById("recovery-panel");
+const recoveryBadge = document.getElementById("recovery-badge");
+const recoveryLatestStep = document.getElementById("recovery-latest-step");
+const recoveryCheckpointStep = document.getElementById("recovery-checkpoint-step");
+const recoveryLostSteps = document.getElementById("recovery-lost-steps");
+const recoveryCheckpointHealth = document.getElementById("recovery-checkpoint-health");
+const recoveryCheckpointAge = document.getElementById("recovery-checkpoint-age");
+const recoveryRestoreStatus = document.getElementById("recovery-restore-status");
+const recoveryRecommendation = document.getElementById("recovery-recommendation");
+const recoveryResumeSnippet = document.getElementById("recovery-resume-snippet");
+const recoverySlurmSnippet = document.getElementById("recovery-slurm-snippet");
+const copyResumeBtn = document.getElementById("copy-resume-btn");
+const copySlurmBtn = document.getElementById("copy-slurm-btn");
+const resumeRunBtn = document.getElementById("resume-run-btn");
+const resumeStatusHint = document.getElementById("resume-status-hint");
+const recoveryLaunchConfig = document.getElementById("recovery-launch-config");
+const recoveryLastResume = document.getElementById("recovery-last-resume");
+const recoveryTimeline = document.getElementById("recovery-timeline");
 const errorBanner = document.getElementById("error-banner");
 const lastUpdatedEl = document.getElementById("last-updated");
 const usageList = document.getElementById("usage-list");
@@ -54,7 +73,9 @@ let cachedRuns = [];
 let cachedMetricPoints = [];
 let lastMetricsFingerprint = "";
 let lastCheckpointsFingerprint = "";
+let lastRecoveryFingerprint = "";
 let cachedMetricKeysSignature = "";
+let cachedRecovery = null;
 let metricsChart = null;
 let refreshTimer = null;
 
@@ -84,6 +105,97 @@ function formatBytes(bytes) {
   return `${(n / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+function formatAge(ms) {
+  if (ms === null || ms === undefined) {
+    return "—";
+  }
+  const seconds = Number(ms) / 1000;
+  if (seconds < 60) return `${seconds.toFixed(0)}s`;
+  if (seconds < 3600) return `${(seconds / 60).toFixed(1)}m`;
+  return `${(seconds / 3600).toFixed(1)}h`;
+}
+
+function recoveryFingerprint(recovery) {
+  if (!recovery) return "";
+  const last = recovery.last_resume;
+  return [
+    recovery.status,
+    recovery.display_status,
+    recovery.latest_step,
+    recovery.latest_checkpoint_step,
+    recovery.estimated_lost_steps,
+    recovery.checkpoint_health,
+    recovery.recovery_badge,
+    recovery.can_resume,
+    last?.launched_at_ms,
+    last?.pid,
+    last?.slurm_job_id,
+  ].join(":");
+}
+
+const RESUME_EVENT_TYPES = new Set([
+  "faultline.run.resume_requested",
+  "faultline.run.resume_started",
+  "faultline.run.resume_failed",
+]);
+
+async function postResume(runId) {
+  const response = await fetch(
+    `/v1/runs/${encodeURIComponent(runId)}/resume`,
+    { method: "POST", headers: authHeaders() }
+  );
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(body || `HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+function recommendationText(recovery) {
+  const map = {
+    resume_from_checkpoint:
+      "This run can resume from the latest checkpoint. Copy the snippet below into your training script.",
+    no_checkpoint:
+      "No checkpoint found. Re-start training from scratch or upload a checkpoint before the next crash.",
+    run_completed: "Run completed successfully. No resume needed.",
+  };
+  return map[recovery.recommendation] || recovery.recommendation;
+}
+
+function renderRecoveryPanel(recovery) {
+  if (!recovery || !selectedRunId) {
+    recoveryPanel.classList.add("hidden");
+    return;
+  }
+  recoveryPanel.classList.remove("hidden");
+  cachedRecovery = recovery;
+
+  const badge = recovery.recovery_badge || "unknown";
+  recoveryBadge.textContent = badge.replace(/_/g, " ");
+  recoveryBadge.className = `recovery-badge recovery-badge-${badge}`;
+
+  recoveryLatestStep.textContent = formatValue(recovery.latest_step);
+  recoveryCheckpointStep.textContent = recovery.has_checkpoint
+    ? formatValue(recovery.latest_checkpoint_step)
+    : "none";
+  recoveryLostSteps.textContent = formatValue(recovery.estimated_lost_steps);
+  recoveryCheckpointHealth.textContent = formatValue(recovery.checkpoint_health);
+  recoveryCheckpointAge.textContent = formatAge(recovery.checkpoint_age_ms);
+  recoveryRestoreStatus.textContent = formatValue(recovery.restore_status);
+  recoveryRecommendation.textContent = recommendationText(recovery);
+  recoveryResumeSnippet.textContent = recovery.resume_snippet || "";
+  recoverySlurmSnippet.textContent = recovery.slurm_snippet || "";
+  recoveryLaunchConfig.textContent = formatLaunchConfig(recovery.launch_config);
+  recoveryLastResume.textContent = formatLastResume(recovery.last_resume);
+
+  resumeRunBtn.disabled = !recovery.can_resume;
+  resumeStatusHint.textContent = recovery.can_resume
+    ? "Relaunch uses stored launch config (one click, no auto-retry loop)."
+    : "Resume requires healthy checkpoint + launch config registration.";
+
+  updateSelectedRunStatusCell(recovery);
+}
+
 function formatTimestamp(ms) {
   if (ms === null || ms === undefined) {
     return "—";
@@ -96,7 +208,52 @@ function formatTimestamp(ms) {
 }
 
 function statusClass(status) {
-  return `status-pill status-${(status || "").toLowerCase()}`;
+  const normalized = (status || "").toLowerCase().replace(/_/g, "-");
+  return `status-pill status-${normalized}`;
+}
+
+function formatLaunchConfig(config) {
+  if (!config) return "Not registered — call run.register_launch_command() or register_slurm_script()";
+  if (config.launch_type === "local_command") {
+    return `Type: local_command\nCommand: ${JSON.stringify(config.command)}\nWorking dir: ${config.working_dir || "(default)"}`;
+  }
+  return `Type: slurm_script\nScript: ${config.script_path}\nWorking dir: ${config.working_dir || "(default)"}`;
+}
+
+function formatLastResume(launch) {
+  if (!launch) return "No resume attempts yet";
+  const lines = [
+    `Status: ${launch.status}`,
+    `Launched: ${formatTimestamp(launch.launched_at_ms)}`,
+  ];
+  if (launch.pid != null) lines.push(`PID: ${launch.pid}`);
+  if (launch.slurm_job_id) lines.push(`Slurm job: ${launch.slurm_job_id}`);
+  if (launch.error_message) lines.push(`Error: ${launch.error_message}`);
+  return lines.join("\n");
+}
+
+function renderRecoveryTimeline(events) {
+  const resumeEvents = (events || []).filter((e) =>
+    RESUME_EVENT_TYPES.has(e.event_type)
+  );
+  if (!resumeEvents.length) {
+    recoveryTimeline.innerHTML = "<li class=\"hint\">No resume events yet</li>";
+    return;
+  }
+  recoveryTimeline.innerHTML = resumeEvents
+    .map(
+      (e) =>
+        `<li><span class="${levelClass(e.level)}">${formatValue(e.event_type)}</span> ${formatTimestamp(e.timestamp_ms)} — ${formatValue(e.message)}</li>`
+    )
+    .join("");
+}
+
+function updateSelectedRunStatusCell(recovery) {
+  const row = runsTableBody.querySelector(".run-row-selected");
+  if (!row || !recovery) return;
+  const statusCell = row.children[2];
+  const label = recovery.display_status || recovery.status;
+  statusCell.innerHTML = `<span class="${statusClass(label)}">${formatValue(label)}</span>`;
 }
 
 function levelClass(level) {
@@ -244,6 +401,7 @@ function renderRuns(runs) {
     runsTableBody.innerHTML =
       '<tr class="empty-row"><td colspan="7">No cloud runs yet — run sdk/examples/cloud_pytorch_easy.py</td></tr>';
     chartPanel.classList.add("hidden");
+    recoveryPanel.classList.add("hidden");
     selectedRunId = null;
     return;
   }
@@ -276,6 +434,7 @@ function renderRuns(runs) {
       selectedRunId = nextRunId;
       lastMetricsFingerprint = "";
       lastCheckpointsFingerprint = "";
+      lastRecoveryFingerprint = "";
       renderRuns(cachedRuns);
       loadSelectedRunDetails({ forceChart: true }).catch(showError);
     });
@@ -358,6 +517,7 @@ async function downloadCheckpoint(url, filename) {
 async function loadSelectedRunDetails({ forceChart = false } = {}) {
   if (!selectedRunId) {
     chartPanel.classList.add("hidden");
+    recoveryPanel.classList.add("hidden");
     eventsTableBody.innerHTML =
       '<tr class="empty-row"><td colspan="4">Select a run</td></tr>';
     renderCheckpoints([]);
@@ -366,10 +526,13 @@ async function loadSelectedRunDetails({ forceChart = false } = {}) {
 
   chartPanel.classList.remove("hidden");
 
-  const [points, events, checkpoints] = await Promise.all([
+  const [points, events, checkpoints, recovery] = await Promise.all([
     fetchJson(`/v1/runs/${encodeURIComponent(selectedRunId)}/metrics?limit=1000`),
     fetchJson(`/v1/runs/${encodeURIComponent(selectedRunId)}/events?limit=100`),
     fetchJson(`/v1/runs/${encodeURIComponent(selectedRunId)}/checkpoints`),
+    fetchJson(
+      `/v1/runs/${encodeURIComponent(selectedRunId)}/recovery?base_url=${encodeURIComponent(BASE_URL)}`
+    ),
   ]);
 
   const fingerprint = metricsFingerprint(points);
@@ -387,6 +550,13 @@ async function loadSelectedRunDetails({ forceChart = false } = {}) {
   }
 
   renderEvents(events);
+  renderRecoveryTimeline(events);
+
+  const recFp = recoveryFingerprint(recovery);
+  if (forceChart || recFp !== lastRecoveryFingerprint) {
+    lastRecoveryFingerprint = recFp;
+    renderRecoveryPanel(recovery);
+  }
 }
 
 function showError(error) {
@@ -432,6 +602,32 @@ copyKeyBtn.addEventListener("click", () => {
 });
 copyCodeBtn.addEventListener("click", () => {
   navigator.clipboard.writeText(STARTER_CODE).catch(() => {});
+});
+copyResumeBtn.addEventListener("click", () => {
+  if (cachedRecovery?.resume_snippet) {
+    navigator.clipboard.writeText(cachedRecovery.resume_snippet).catch(() => {});
+  }
+});
+copySlurmBtn.addEventListener("click", () => {
+  if (cachedRecovery?.slurm_snippet) {
+    navigator.clipboard.writeText(cachedRecovery.slurm_snippet).catch(() => {});
+  }
+});
+resumeRunBtn.addEventListener("click", async () => {
+  if (!selectedRunId) return;
+  resumeRunBtn.disabled = true;
+  resumeStatusHint.textContent = "Resuming…";
+  try {
+    const result = await postResume(selectedRunId);
+    resumeStatusHint.textContent = `Started (pid=${result.pid ?? "—"}, slurm=${result.slurm_job_id ?? "—"})`;
+    lastRecoveryFingerprint = "";
+    lastCheckpointsFingerprint = "";
+    await refreshAll();
+  } catch (error) {
+    showError(error);
+    resumeStatusHint.textContent = "Resume failed";
+    resumeRunBtn.disabled = false;
+  }
 });
 refreshBtn.addEventListener("click", refreshAll);
 autoRefreshCheckbox.addEventListener("change", resetAutoRefresh);

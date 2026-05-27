@@ -1,22 +1,19 @@
-"""Local filesystem checkpoint storage for cloud MVP."""
+"""Checkpoint storage helpers (re-exported from storage module)."""
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
+from cloud.api.storage import (
+    MAX_CHECKPOINT_BYTES,
+    checkpoint_filename_for_step,
+    checkpoint_storage_path,
+    checkpoints_root,
+    get_checkpoint_storage,
+)
 
-CLOUD_DATA_ROOT = Path(__file__).resolve().parents[1] / "data"
-MAX_CHECKPOINT_BYTES = 50 * 1024 * 1024  # 50 MiB dev limit
-
-
-def checkpoints_root() -> Path:
-    raw = os.environ.get("FAULTLINE_CLOUD_CHECKPOINTS_DIR")
-    if raw:
-        return Path(raw)
-    return CLOUD_DATA_ROOT / "checkpoints"
-
-
-def checkpoint_path(user_id: str, run_id: str, step: int) -> Path:
-    directory = checkpoints_root() / user_id / run_id
-    directory.mkdir(parents=True, exist_ok=True)
-    return directory / f"step_{step}.pkl"
+__all__ = [
+    "MAX_CHECKPOINT_BYTES",
+    "checkpoint_filename_for_step",
+    "checkpoint_storage_path",
+    "checkpoints_root",
+    "get_checkpoint_storage",
+]

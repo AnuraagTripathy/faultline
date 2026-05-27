@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import sqlite3
-
+from cloud.api.database import DbConnection, is_postgres
 from cloud.api.db import now_ms
 
 USAGE_FIELDS = (
@@ -15,17 +14,24 @@ USAGE_FIELDS = (
 )
 
 
-def ensure_usage_row(conn: sqlite3.Connection, user_id: str) -> None:
-    conn.execute(
-        """
-        INSERT OR IGNORE INTO usage_counters (user_id)
-        VALUES (?)
-        """,
-        (user_id,),
-    )
+def ensure_usage_row(conn: DbConnection, user_id: str) -> None:
+    if is_postgres():
+        conn.execute(
+            """
+            INSERT INTO usage_counters (user_id)
+            VALUES (?)
+            ON CONFLICT (user_id) DO NOTHING
+            """,
+            (user_id,),
+        )
+    else:
+        conn.execute(
+            "INSERT OR IGNORE INTO usage_counters (user_id) VALUES (?)",
+            (user_id,),
+        )
 
 
-def touch_last_used(conn: sqlite3.Connection, user_id: str) -> None:
+def touch_last_used(conn: DbConnection, user_id: str) -> None:
     ensure_usage_row(conn, user_id)
     conn.execute(
         "UPDATE usage_counters SET last_used_at_ms = ? WHERE user_id = ?",
@@ -34,7 +40,7 @@ def touch_last_used(conn: sqlite3.Connection, user_id: str) -> None:
 
 
 def increment_usage(
-    conn: sqlite3.Connection,
+    conn: DbConnection,
     user_id: str,
     *,
     runs_created: int = 0,
@@ -66,7 +72,7 @@ def increment_usage(
     )
 
 
-def get_usage(conn: sqlite3.Connection, user_id: str) -> dict[str, int | None]:
+def get_usage(conn: DbConnection, user_id: str) -> dict[str, int | None]:
     ensure_usage_row(conn, user_id)
     row = conn.execute(
         "SELECT * FROM usage_counters WHERE user_id = ?",

@@ -14,6 +14,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from fastapi.testclient import TestClient  # noqa: E402
 
 from cloud.api.app import create_app  # noqa: E402
+from cloud.api.database import reset_engine  # noqa: E402
 from cloud.api.db import DEV_API_KEY, connect, init_db  # noqa: E402
 
 AUTH = {"Authorization": f"Bearer {DEV_API_KEY}"}
@@ -30,6 +31,7 @@ class TestCloudUsage(unittest.TestCase):
         self.client = TestClient(create_app())
 
     def tearDown(self) -> None:
+        reset_engine()
         os.environ.pop("FAULTLINE_CLOUD_DB", None)
         Path(self._tmp.name).unlink(missing_ok=True)
 
@@ -72,7 +74,7 @@ class TestCloudUsage(unittest.TestCase):
     def test_landing_and_getting_started(self) -> None:
         landing = self.client.get("/")
         self.assertEqual(landing.status_code, 200)
-        self.assertIn(b"Monitor and recover", landing.content)
+        self.assertIn(b"resume failed training", landing.content)
 
         gs = self.client.get("/getting-started")
         self.assertEqual(gs.status_code, 200)

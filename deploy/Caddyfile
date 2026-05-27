@@ -1,0 +1,12 @@
+{$FAULTLINE_DOMAIN} {
+  encode zstd gzip
+
+  @api path /v1/* /health /ready /dashboard /static/*
+  handle @api {
+    reverse_proxy cloud-api:8080
+  }
+
+  handle {
+    reverse_proxy web:3000
+  }
+}

@@ -1,0 +1,72 @@
+version: "3.9"
+
+services:
+  reverse-proxy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+      - cloud-api
+
+  cloud-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.cloud-api
+    environment:
+      FAULTLINE_ENV: production
+      FAULTLINE_CLOUD_VERSION: "24.0"
+      FAULTLINE_DB_AUTO_CREATE: "false"
+      FAULTLINE_DATABASE_URL: ${FAULTLINE_DATABASE_URL:?FAULTLINE_DATABASE_URL is required}
+      FAULTLINE_CLOUD_STORAGE: s3
+      FAULTLINE_S3_ENDPOINT: ${FAULTLINE_S3_ENDPOINT}
+      FAULTLINE_S3_BUCKET: ${FAULTLINE_S3_BUCKET}
+      FAULTLINE_S3_ACCESS_KEY: ${FAULTLINE_S3_ACCESS_KEY}
+      FAULTLINE_S3_SECRET_KEY: ${FAULTLINE_S3_SECRET_KEY}
+      FAULTLINE_S3_REGION: ${FAULTLINE_S3_REGION:-auto}
+      FAULTLINE_JWT_SECRET: ${FAULTLINE_JWT_SECRET:?FAULTLINE_JWT_SECRET is required}
+      FAULTLINE_COOKIE_SECURE: "true"
+      FAULTLINE_CORS_ORIGINS: ${FAULTLINE_CORS_ORIGINS:?FAULTLINE_CORS_ORIGINS is required}
+      FAULTLINE_RATE_LIMIT_ENABLED: "true"
+      FAULTLINE_RATE_LIMIT_REQUESTS_PER_MINUTE: ${FAULTLINE_RATE_LIMIT_REQUESTS_PER_MINUTE:-120}
+      FAULTLINE_RATE_LIMIT_AUTH_REQUESTS_PER_MINUTE: ${FAULTLINE_RATE_LIMIT_AUTH_REQUESTS_PER_MINUTE:-20}
+      FAULTLINE_RATE_LIMIT_UPLOADS_PER_MINUTE: ${FAULTLINE_RATE_LIMIT_UPLOADS_PER_MINUTE:-10}
+      FAULTLINE_OAUTH_GOOGLE_CLIENT_ID: ${FAULTLINE_OAUTH_GOOGLE_CLIENT_ID:?required}
+      FAULTLINE_OAUTH_GOOGLE_CLIENT_SECRET: ${FAULTLINE_OAUTH_GOOGLE_CLIENT_SECRET:?required}
+      FAULTLINE_OAUTH_GITHUB_CLIENT_ID: ${FAULTLINE_OAUTH_GITHUB_CLIENT_ID:?required}
+      FAULTLINE_OAUTH_GITHUB_CLIENT_SECRET: ${FAULTLINE_OAUTH_GITHUB_CLIENT_SECRET:?required}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/ready')",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+      args:
+        NEXT_PUBLIC_FAULTLINE_API_URL: ${NEXT_PUBLIC_FAULTLINE_API_URL}
+    environment:
+      NODE_ENV: production
+      FAULTLINE_API_URL: http://cloud-api:8080
+      NEXT_PUBLIC_FAULTLINE_API_URL: ${NEXT_PUBLIC_FAULTLINE_API_URL}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+    depends_on:
+      - cloud-api
+
+volumes:
+  caddy_data:
+  caddy_config:

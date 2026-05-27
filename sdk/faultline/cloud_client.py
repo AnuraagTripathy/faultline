@@ -122,6 +122,22 @@ class CloudIngestClient:
     def get_run(self, run_id: str) -> dict[str, Any]:
         return self._request("GET", f"/v1/runs/{run_id}")
 
+    def get_recovery(self, run_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/v1/runs/{run_id}/recovery")
+
+    def register_launch_config(self, run_id: str, config: dict[str, Any]) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            f"/v1/runs/{run_id}/launch-config",
+            config,
+        )
+
+    def get_launch_config(self, run_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/v1/runs/{run_id}/launch-config")
+
+    def resume_run(self, run_id: str) -> dict[str, Any]:
+        return self._request("POST", f"/v1/runs/{run_id}/resume")
+
     def list_runs(self) -> list[dict[str, Any]]:
         return self._request("GET", "/v1/runs")
 

@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+pydantic
+python-multipart
+bcrypt
+PyJWT
+sqlalchemy
+psycopg[binary]
+boto3
+alembic

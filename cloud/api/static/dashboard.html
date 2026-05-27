@@ -90,6 +90,77 @@
             <canvas id="metrics-chart"></canvas>
           </div>
         </div>
+
+        <div id="recovery-panel" class="recovery-panel hidden">
+          <div class="recovery-header">
+            <h3>Crash-to-resume</h3>
+            <span id="recovery-badge" class="recovery-badge recovery-badge-unknown">—</span>
+          </div>
+          <div class="recovery-grid">
+            <div class="recovery-stat">
+              <span class="recovery-label">Latest metric step</span>
+              <strong id="recovery-latest-step">—</strong>
+            </div>
+            <div class="recovery-stat">
+              <span class="recovery-label">Latest checkpoint</span>
+              <strong id="recovery-checkpoint-step">—</strong>
+            </div>
+            <div class="recovery-stat">
+              <span class="recovery-label">Estimated lost steps</span>
+              <strong id="recovery-lost-steps">—</strong>
+            </div>
+            <div class="recovery-stat">
+              <span class="recovery-label">Checkpoint health</span>
+              <strong id="recovery-checkpoint-health">—</strong>
+            </div>
+            <div class="recovery-stat">
+              <span class="recovery-label">Checkpoint age</span>
+              <strong id="recovery-checkpoint-age">—</strong>
+            </div>
+            <div class="recovery-stat">
+              <span class="recovery-label">Restore status</span>
+              <strong id="recovery-restore-status">—</strong>
+            </div>
+          </div>
+          <p id="recovery-recommendation" class="recovery-recommendation"></p>
+
+          <div class="recovery-actions">
+            <button type="button" id="resume-run-btn" class="btn" disabled>
+              Resume Run
+            </button>
+            <span id="resume-status-hint" class="hint"></span>
+          </div>
+
+          <div class="recovery-launch-block">
+            <h4>Launch configuration</h4>
+            <pre id="recovery-launch-config" class="recovery-snippet">—</pre>
+          </div>
+
+          <div class="recovery-launch-block">
+            <h4>Last resume launch</h4>
+            <pre id="recovery-last-resume" class="recovery-snippet">—</pre>
+          </div>
+
+          <div class="recovery-launch-block">
+            <h4>Recovery timeline</h4>
+            <ul id="recovery-timeline" class="recovery-timeline"></ul>
+          </div>
+
+          <div class="recovery-snippet-block">
+            <div class="starter-header">
+              <h4>Resume code</h4>
+              <button type="button" id="copy-resume-btn" class="btn btn-small">Copy</button>
+            </div>
+            <pre id="recovery-resume-snippet" class="recovery-snippet"></pre>
+          </div>
+          <div class="recovery-snippet-block">
+            <div class="starter-header">
+              <h4>Slurm template</h4>
+              <button type="button" id="copy-slurm-btn" class="btn btn-small">Copy</button>
+            </div>
+            <pre id="recovery-slurm-snippet" class="recovery-snippet"></pre>
+          </div>
+        </div>
       </section>
 
       <section class="section">

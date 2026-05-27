@@ -15,6 +15,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from fastapi.testclient import TestClient  # noqa: E402
 
 from cloud.api.app import create_app  # noqa: E402
+from cloud.api.database import reset_engine  # noqa: E402
 from cloud.api.db import DEV_API_KEY, connect, init_db  # noqa: E402
 
 AUTH = {"Authorization": f"Bearer {DEV_API_KEY}"}
@@ -35,6 +36,7 @@ class TestCloudCheckpoints(unittest.TestCase):
         self.client = TestClient(create_app())
 
     def tearDown(self) -> None:
+        reset_engine()
         os.environ.pop("FAULTLINE_CLOUD_DB", None)
         os.environ.pop("FAULTLINE_CLOUD_CHECKPOINTS_DIR", None)
         Path(self._db.name).unlink(missing_ok=True)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from faultline.cloud_run import CloudRun
 from faultline.run import init
 
@@ -17,6 +19,9 @@ def start(
     api_key: str = DEFAULT_API_KEY,
     base_url: str = DEFAULT_BASE_URL,
     tags: list[str] | None = None,
+    resume_if_available: bool = False,
+    model: Any | None = None,
+    optimizer: Any | None = None,
 ) -> CloudRun:
     """
     Start a cloud training run (alias for ``init(..., mode="cloud")``).
@@ -40,4 +45,19 @@ def start(
     )
     if not isinstance(run, CloudRun):
         raise TypeError("start() requires cloud mode")
+    if resume_if_available:
+        run._initial_resume_step = run.restore_latest(  # type: ignore[attr-defined]
+            model=model,
+            optimizer=optimizer,
+        )
     return run
+
+
+def attach(
+    run_id: str,
+    *,
+    api_key: str = DEFAULT_API_KEY,
+    base_url: str = DEFAULT_BASE_URL,
+) -> CloudRun:
+    """Resume an existing cloud run by id (loads checkpoints from that run)."""
+    return CloudRun.attach(run_id, api_key=api_key, base_url=base_url)

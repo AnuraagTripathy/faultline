@@ -356,3 +356,159 @@ tbody tr:last-child td {
   color: var(--text);
   border: 1px solid var(--border);
 }
+
+.recovery-panel {
+  margin-top: 1rem;
+  padding: 1rem 1.25rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.recovery-panel.hidden {
+  display: none;
+}
+
+.recovery-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.recovery-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.recovery-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  text-transform: lowercase;
+}
+
+.recovery-badge-recoverable {
+  background: rgba(62, 207, 142, 0.15);
+  color: var(--ok);
+}
+
+.recovery-badge-no_checkpoint {
+  background: rgba(139, 156, 179, 0.15);
+  color: var(--muted);
+}
+
+.recovery-badge-completed {
+  background: rgba(91, 156, 255, 0.15);
+  color: var(--accent);
+}
+
+.recovery-badge-checkpoint_missing {
+  background: rgba(240, 113, 120, 0.15);
+  color: var(--danger);
+}
+
+.recovery-badge-unknown {
+  background: rgba(139, 156, 179, 0.15);
+  color: var(--muted);
+}
+
+.recovery-badge-stale {
+  background: rgba(240, 180, 41, 0.15);
+  color: var(--warn);
+}
+
+.recovery-badge-resuming {
+  background: rgba(91, 156, 255, 0.2);
+  color: var(--accent);
+}
+
+.recovery-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.recovery-launch-block {
+  margin-bottom: 0.75rem;
+}
+
+.recovery-launch-block h4 {
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+}
+
+.recovery-timeline {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.recovery-timeline li {
+  margin-bottom: 0.35rem;
+}
+
+.status-stale {
+  background: rgba(240, 180, 41, 0.15);
+  color: var(--warn);
+}
+
+.status-resuming {
+  background: rgba(91, 156, 255, 0.15);
+  color: var(--accent);
+}
+
+.status-recoverable {
+  background: rgba(62, 207, 142, 0.15);
+  color: var(--ok);
+}
+
+.recovery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.recovery-stat {
+  background: var(--surface-2);
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+}
+
+.recovery-label {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-bottom: 0.15rem;
+}
+
+.recovery-recommendation {
+  margin: 0 0 0.75rem;
+  font-size: 0.875rem;
+  color: var(--text);
+}
+
+.recovery-snippet-block {
+  margin-top: 0.75rem;
+}
+
+.recovery-snippet-block h4 {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.recovery-snippet {
+  margin: 0.35rem 0 0;
+  padding: 0.65rem 0.75rem;
+  background: var(--surface-2);
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 0.72rem;
+  max-height: 200px;
+}

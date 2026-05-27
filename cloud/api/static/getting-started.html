@@ -61,7 +61,8 @@
 
       <h1>Getting started with Faultline Cloud</h1>
       <p>
-        Log metrics and checkpoints from any training script with a few lines of Python.
+        Faultline does not just track runs — it helps you <strong>resume failed training jobs</strong>.
+        Log metrics and checkpoints from any script; use the Recovery panel after a crash.
       </p>
 
       <h2>1. Start the API</h2>
@@ -102,6 +103,32 @@ run.complete()</pre>
       </p>
       <p>Try the longer demo (~20s, live-updating charts):</p>
       <pre>python sdk/examples/cloud_pytorch_easy.py --steps 180 --step-delay 0.12</pre>
+
+      <h2>After a crash</h2>
+      <pre>recovery = run.recovery()
+run.print_resume_instructions(recovery)
+step = run.restore_latest(model=model, optimizer=optimizer)</pre>
+      <p>Or open <a href="/dashboard">/dashboard</a> → select the run → <strong>Crash-to-resume</strong>.</p>
+      <p>Demo: <code>python sdk/examples/cloud_failure_recovery_demo.py</code></p>
+
+      <h2>HPC / Slurm recovery</h2>
+      <pre>run.register_slurm_script("train.slurm")
+
+# If the job dies:
+# Dashboard → Recovery → Resume Run
+# Or: run.resume()</pre>
+      <p>
+        Faultline requeues via <code>sbatch</code> (when configured). Your training script should call
+        <code>run.restore_latest(model=..., optimizer=...)</code> on startup. No Kubernetes, no
+        auto-retry daemon — manual or API-triggered relaunch only.
+      </p>
+      <ol>
+        <li><code>pip install -e sdk</code> (or <code>PYTHONPATH=sdk</code> on the cluster)</li>
+        <li>Set <code>FAULTLINE_API_KEY</code> and <code>base_url</code></li>
+        <li><code>faultline.start()</code> · <code>run.log()</code> · <code>run.save()</code></li>
+        <li>Register launch: <code>run.register_launch_command([...])</code> or <code>register_slurm_script(...)</code></li>
+        <li>After crash: dashboard <strong>Resume Run</strong> or <code>run.resume()</code></li>
+      </ol>
 
       <details>
         <summary>Advanced usage</summary>

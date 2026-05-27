@@ -1,6 +1,12 @@
 # Faultline
 
-**Fault-tolerant ML checkpointing** — a Rust persistence runtime with a Python SDK for PyTorch-style training loops. Atomic writes, durable metadata, optional async queuing, gRPC transport, and explicit reliability testing.
+[![Cloud tests](https://img.shields.io/badge/cloud%20tests-passing-success)](#development)
+[![SDK](https://img.shields.io/badge/SDK-Python-blue)](#cloud-mode-version-210)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED)](#run-the-product-locally-with-docker)
+
+**ML training continuity and recovery platform** — never lose days of GPU training to crashes, preemptions, or cluster evictions. Faultline monitors long-running jobs, stores checkpoints in object storage, and tells you exactly how to resume.
+
+Also includes a Rust persistence runtime for local/PyTorch checkpoint experiments.
 
 ---
 
@@ -143,24 +149,60 @@ Dashboard **Alerts** panel and overview **Active alerts** card refresh every 2s 
 
 ---
 
-## Cloud mode MVP (Version 16.0–16.3)
+## Run the product locally with Docker
 
-Hosted ingestion API (separate from the local Rust runtime). Metrics, events, and checkpoints go to **FastAPI + SQLite** with dev filesystem storage under `cloud/data/`.
+From the **repo root** (API + Next.js UI + persistent volume):
 
 ```bash
-uvicorn cloud.api.app:app --reload --port 8080
-set PYTHONPATH=sdk
-python sdk/examples/cloud_pytorch_easy.py
-# python sdk/examples/cloud_run_demo.py
-# python sdk/examples/cloud_checkpoint_demo.py
+docker compose -f docker-compose.cloud.yml up --build
 ```
 
-- Dashboard: http://127.0.0.1:8080/dashboard
+| URL | What |
+|-----|------|
+| http://localhost:3000 | Next.js product UI |
+| http://localhost:8080 | FastAPI API |
+
+See **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** for Render, Railway, Fly.io, and Vercel.
+
+---
+
+## Why Faultline exists
+
+Experiment trackers answer *"how did runs compare?"* Faultline answers *"my job died at hour 18 — what step do I restart from, is the checkpoint healthy, and what command relaunches it?"*
+
+## Cloud mode (Version 24.0)
+
+**Not experiment tracking.** Metrics, checkpoints, crash-to-resume, HuggingFace/Lightning callbacks, OAuth browser login, and alerts via **FastAPI + PostgreSQL + MinIO/S3**. v24 adds **Alembic migrations**, **production rate limiting**, and **startup hardening** for controlled beta deploys.
+
+**Deploy:** [docs/PRODUCTION.md](docs/PRODUCTION.md) · **Local:** [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) · **Launch checklist:** [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)
+
+### Two-minute demo (no code)
+
+```bash
+docker compose -f docker-compose.cloud.yml up --build
+# → http://localhost:3000/demo  (no signup)
+# → Log in: demo@faultline.local / faultlinedemo
+```
+
+### CLI demo
+
+```bash
+set PYTHONPATH=sdk
+python -m faultline.cli demo --open
+python -m faultline.cli login --email you@example.com --password ...
+python -m faultline.cli whoami
+```
+
+- **SDK:** `faultline.quickstart()`, `faultline.auto_resume()`, framework callbacks
+- **Failure suite:** `PYTHONPATH=sdk python -m faultline.cli demo crash --scenario process_kill_resume`
+- **Recovery benchmark:** `PYTHONPATH=sdk python benchmark/recovery/run_benchmark.py`
+- **UI:** http://localhost:3000 · **Live demo:** http://localhost:3000/demo
+- Legacy dashboard: http://127.0.0.1:8080/dashboard
 - Landing: http://127.0.0.1:8080/
 - Dev API key: `fl_dev_local` (plaintext, local dev only)
 - `faultline.init(..., mode="cloud", api_key="...", base_url="http://127.0.0.1:8080")`
 
-Production would use object storage and real auth/billing later. Details: **[cloud/README.md](cloud/README.md)**
+Production: managed Postgres + S3/R2, strong JWT secret, no demo seed. Details: **[docs/PRODUCTION.md](docs/PRODUCTION.md)** and **[cloud/README.md](cloud/README.md)**
 
 ---
 

@@ -1,0 +1,115 @@
+# Faultline Cloud v24.0 — local development (demo seed enabled)
+#
+#   docker compose -f docker-compose.cloud.yml up --build
+#
+# Web UI:  http://localhost:3000
+# API:     http://localhost:8080
+# MinIO:   http://localhost:9001 (console)
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: faultline
+      POSTGRES_PASSWORD: faultline
+      POSTGRES_DB: faultline
+    volumes:
+      - faultline_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U faultline -d faultline"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - faultline_minio_data:/data
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5 &&
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb local/faultline --ignore-existing &&
+      echo 'bucket faultline ready'
+      "
+
+  cloud-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.cloud-api
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env.local
+    environment:
+      FAULTLINE_DATABASE_URL: postgresql+psycopg://faultline:faultline@postgres:5432/faultline
+      FAULTLINE_CLOUD_STORAGE: minio
+      FAULTLINE_S3_ENDPOINT: http://minio:9000
+      FAULTLINE_S3_BUCKET: faultline
+      FAULTLINE_S3_ACCESS_KEY: minioadmin
+      FAULTLINE_S3_SECRET_KEY: minioadmin
+      FAULTLINE_S3_REGION: us-east-1
+      FAULTLINE_ENV: development
+      FAULTLINE_CLOUD_VERSION: "24.0"
+      # Pre-seeds demo runs on startup; login: demo@faultline.local / faultlinedemo
+      FAULTLINE_SEED_DEMO: "1"
+      FAULTLINE_JWT_SECRET: faultline-docker-dev-jwt-secret
+      FAULTLINE_CORS_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
+      FAULTLINE_RATE_LIMIT_ENABLED: "false"
+      FAULTLINE_COOKIE_SECURE: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/ready')",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+      args:
+        NEXT_PUBLIC_FAULTLINE_API_URL: http://127.0.0.1:8080
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.local
+    environment:
+      FAULTLINE_API_URL: http://cloud-api:8080
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+    depends_on:
+      cloud-api:
+        condition: service_healthy
+
+volumes:
+  faultline_postgres_data:
+  faultline_minio_data:
+
+# Dev profile (SQLite + local disk) — opt-in:
+#   docker compose -f docker-compose.cloud.yml --profile dev up cloud-api web
+#
+# Override cloud-api env in compose override or:
+#   FAULTLINE_DATABASE_URL=sqlite:///data/faultline.db FAULTLINE_CLOUD_STORAGE=local

@@ -1,230 +1,75 @@
-# Faultline architecture
+# Faultline Cloud architecture (v22.0)
 
-Faultline is a **single-machine checkpoint orchestration runtime**: Python (or CLI) submits checkpoint jobs; Rust persists bytes and updates durable metadata. This document describes how the pieces fit together without walking every file.
+## Product positioning
 
----
+**Faultline** is an ML training **continuity and recovery** platform:
 
-## Layered view
+- Stream metrics and checkpoints from training scripts
+- Survive crashes with checkpoint-backed resume
+- Alert on stale runs, missing checkpoints, and recovery opportunities
 
-```mermaid
-flowchart TB
-    subgraph clients [Clients]
-        PY[Python SDK]
-        CLI[Rust CLI]
-    end
+It is not positioned as a lightweight experiment tracker only.
 
-    subgraph transport [Transport optional]
-        JSON[stdin/stdout JSON services]
-        GRPC[gRPC serve-grpc]
-    end
-
-    subgraph rust_core [Rust core]
-        ASVC[async_service / grpc_service]
-        ACM[AsyncCheckpointRuntime]
-        SVC[service sync]
-        CM[CheckpointManager]
-        STOR[StorageBackend]
-    end
-
-    subgraph persistence [Persistence]
-        META[metadata.json]
-        BLOBS[step_NNNN.ckpt files]
-    end
-
-    PY --> JSON
-    PY --> GRPC
-    CLI --> CM
-    JSON --> SVC
-    JSON --> ASVC --> ACM --> CM
-    GRPC --> ASVC
-    SVC --> CM
-    CM --> STOR
-    STOR --> META
-    STOR --> BLOBS
-```
-
----
-
-## Python SDK layers
-
-| Class | Transport | When to use |
-|-------|-----------|-------------|
-| `Runtime` | `cargo run` per command | Scripts, tests, simplest path |
-| `PersistentRuntime` | `serve` (sync JSON) | Blocking save; returns after disk commit |
-| `AsyncPersistentRuntime` | `serve-async` (JSON) | Fast enqueue; background persistence |
-| `GrpcAsyncRuntime` | `serve-grpc` (protobuf) | Same async semantics over gRPC |
-
-Shared helpers in `faultline/runtime.py`:
-
-- Pickle/JSON wrappers around checkpoint bytes
-- File transport (`save_from_file`, temp files) for large payloads
-- Worker-aware steps: `global_step = worker_id * 1_000_000 + local_step`
-- `write_delay_ms` forwarded to Rust for slow-storage benchmarks
-
-The SDK does **not** embed Rust. It spawns the `runtime` binary (or a release build) as a subprocess, except gRPC which uses a long-lived server process.
-
----
-
-## Transport: JSON services vs gRPC
-
-### JSON (`serve` / `serve-async`)
-
-- One JSON object per line on stdin; one response line on stdout
-- Progress and diagnostics on **stderr** (so stdout stays machine-readable)
-- Commands: `save_from_file`, `enqueue_from_file`, `enqueue_worker_from_file`, `status`, `metrics`, `latest_for_worker`, `prune_per_worker`, `shutdown`, etc.
-
-### gRPC (`serve-grpc`)
-
-- Optional path alongside JSON (nothing removed)
-- Unary RPCs: file path enqueue, inline bytes, client-streaming chunks
-- Same underlying `AsyncCheckpointRuntime` and `CheckpointManager` as async JSON
-- Python stubs under `sdk/faultline/grpc/`
-
----
-
-## AsyncCheckpointRuntime
-
-- Bounded in-memory queue of checkpoint jobs
-- Background worker thread(s) call `CheckpointManager` to commit each job
-- Per-step status: `Queued` → `Writing` → `Committed` (or `Failed` / `Dropped`)
-- Metrics: enqueued, committed, failed, dropped, bytes written, write time
-- `shutdown` drains the queue then stops the service
-
-Sync `serve` skips the queue: each save blocks until `CheckpointManager` finishes.
-
----
-
-## CheckpointManager
-
-Orchestrates **logical** checkpoints:
-
-1. Write blob via `StorageBackend::write_atomic` (temp → fsync → rename on local disk)
-2. Update `metadata.json` via `StorageBackend::write_metadata`
-
-Public API (unchanged across storage backends):
-
-- `save_checkpoint` / `save_worker_checkpoint`
-- `load_latest` / `load_latest_for_worker`
-- `latest_checkpoint` / `latest_checkpoint_for_worker`
-- `list_checkpoints`, `prune_checkpoints`, `prune_checkpoints_per_worker`
-
-Optional `write_delay_ms` sleeps before each blob write (benchmark hook for slow storage).
-
-Constructors:
-
-- `new` / `new_with_delay` → `LocalStorageBackend` under `checkpoints/`
-- `with_storage(Arc<dyn StorageBackend>, …)` → tests or custom backends
-
----
-
-## StorageBackend
-
-Trait abstracting blob + metadata I/O:
-
-| Method | Role |
-|--------|------|
-| `write_atomic` | Persist one checkpoint file; returns metadata path string |
-| `read` / `delete` / `exists` | Blob access by metadata path |
-| `read_metadata` / `write_metadata` / `metadata_exists` | `metadata.json` lifecycle |
-
-Implementations:
-
-| Backend | Purpose |
-|---------|---------|
-| `LocalStorageBackend` | Production default: repo `checkpoints/` directory |
-| `InMemoryStorageBackend` | Unit tests, failure simulation harness |
-| `FailureInjectingStorageBackend<B>` | One-shot injected errors on wrapped backend |
-
-Future: S3-compatible remote backend behind the same trait (not implemented yet).
-
----
-
-## Metadata lifecycle
-
-`metadata.json` is the **source of truth** for what is committed.
-
-Each entry records:
-
-- `step` (global step; worker jobs use encoded global step)
-- `path` (e.g. `checkpoints/step_0001.ckpt`)
-- `status` (`committed`)
-- Optional `worker_id`, `local_step` for multi-worker demos
-
-**Latest checkpoint** = entry matching `latest_step` in metadata, not “newest file on disk.”
-
-### Failure semantics (important)
-
-Persistence is two phases:
-
-1. **Blob write** (`write_atomic`)
-2. **Metadata commit** (`write_metadata` after updating in-memory structure)
-
-If phase 1 succeeds and phase 2 fails, an **orphan blob** may exist that is **not** listed in metadata and will not be returned by `load_latest`.
-
-If phase 1 fails, metadata is not updated for that step.
-
-The `failure-demo` CLI (`cargo run -- failure-demo`) demonstrates this with `FailureInjectingStorageBackend` over in-memory storage.
-
----
-
-## On-disk layout (local backend)
+## Request flow
 
 ```
-checkpoints/
-  metadata.json
-  step_0001.ckpt
-  step_0002.ckpt
-  step_0001.ckpt.tmp   # only during in-flight write
+Browser → Next.js /api/* (BFF, session JWT)
+              → Cloud API /v1/*
+
+SDK     → Cloud API /v1/* (Bearer API key)
 ```
 
-Worker-aware filenames still use global step in the name; worker identity lives in metadata.
+## Data stores
 
----
+| Store | Contents |
+|-------|----------|
+| **PostgreSQL** | Users, API keys, projects, runs, metrics, events, checkpoints metadata, launch configs, tasks, alert settings |
+| **Object storage** | Checkpoint pickle blobs |
 
-## Dataset registry (Version 11.0)
+SQLite remains supported for local dev via `FAULTLINE_DATABASE_URL=sqlite:///...`.
 
-Separate from checkpoint blobs: **`DatasetRegistry`** tracks shard assignment in `datasets/registry.json`.
+## Checkpoint path
 
-| Concept | Role |
-|---------|------|
-| `DatasetMetadata` | Name, `total_samples`, `shard_size`, `total_shards` |
-| `ShardMetadata` | Sample range, `ShardStatus`, optional `claimed_by` / `claimed_at_ms` |
-| `claim_next_shard` | Lowest pending shard → **Claimed** |
-| `complete_shard` | **Claimed** → **Completed** (must match worker) |
-| `release_stale_shards` | **Claimed** older than timeout → **Pending** |
+1. SDK `POST /v1/runs/{id}/checkpoints` (multipart)
+2. `CloudCheckpointStorage.save_checkpoint()` → local dir or S3 key `checkpoints/{user}/{run}/step_N.pkl`
+3. Row in `checkpoints` with `storage_backend`, `storage_path`, `checksum_sha256`
+4. Background task `verify_checkpoint` validates blob health
 
-Exposed on the same gRPC server as checkpoints (`RegisterDataset`, `ClaimNextShard`, `CompleteShard`, `ListDatasets`, `ReleaseStaleShards`). Does not modify `CheckpointManager` behavior.
+## Background worker
 
----
+In-process queue (thread + `queue.Queue`):
 
-## Observability (Version 12.0)
+| Task | Purpose |
+|------|---------|
+| `verify_checkpoint` | Post-upload integrity check |
+| `evaluate_alerts` | Scan runs; send email/Discord/Slack |
+| `resume_run` | Optional async resume relaunch |
 
-**Read-only** RPCs aggregate existing state; they do not mutate checkpoints or shards.
+Task state in `background_tasks` table.
 
-| RPC | Sources |
-|-----|---------|
-| `GetRuntimeOverview` | `DatasetRegistry` shard counts + `metadata.json` checkpoint list length + `AsyncCheckpointRuntime` metrics |
-| `ListWorkers` | Worker fields on committed checkpoints + per-worker claimed/completed shard counts from registry |
-| `ListShards` | `DatasetRegistry` shard list with optional status filter |
+## Recovery
 
-`updated_at_ms` on shards is set when status changes (for tables and debugging). Python: `get_runtime_overview()`, `list_workers()`, `list_shards(dataset_name, status=None)`.
+`GET /v1/runs/{id}/recovery` computes stale/failed/recoverable state from metrics age + checkpoint health. UI recovery panel unchanged; storage abstraction used for health checks.
 
-### Event log (Version 12.2)
+## Alerts
 
-`EventLog` is an in-memory ring buffer (500 events) shared by the gRPC server, dataset registry, async runtime, and checkpoint manager. Events are **read-only** for clients (`ListEvents` / dashboard timeline). Recorded types include `checkpoint_queued`, `checkpoint_committed`, `checkpoint_failed`, `dataset_registered`, `shard_claimed`, `shard_completed`, `stale_shard_released`, and `prune_completed`.
+Per-user settings: email, Discord webhook, Slack webhook. Delivery via SMTP / HTTP webhooks. Deduped per run + alert type (1 hour window).
 
----
+## Auth model
 
-## Repo map
+- Browser: email/password or OAuth (Google/GitHub) session cookie
+- SDK/training: API keys only (`fl_...`)
+- Browser sessions and machine API keys are intentionally separated
 
-| Path | Role |
-|------|------|
-| `runtime/` | Rust crate: manager, async runtime, services, gRPC, storage |
-| `proto/` | gRPC definitions |
-| `sdk/faultline/` | Python package |
-| `sdk/examples/` | Demos |
-| `sdk/benchmarks/` | Benchmark scripts |
-| `docs/` | Architecture, runbook, roadmap |
-| `checkpoints/` | Default output (gitignored) |
+## Recovery credibility signals
 
-See also: [RUNBOOK.md](RUNBOOK.md), [ROADMAP.md](ROADMAP.md).
+- Failure simulation suite: `sdk/examples/failure_scenarios/`
+- Recovery benchmark reports: `benchmark/recovery/REPORT.md`
+- Dashboard recovery stats: average lost steps, successful resumes, latest latency
+
+## Version history (cloud)
+
+- **16–17** — API, recovery, launch/resume
+- **18** — Next.js UI, auth, API keys, live polling
+- **19** — Postgres, MinIO/S3, worker, outbound alerts, infrastructure status
+- **22** — OAuth, public deployment hardening, failure simulation suite, recovery benchmarks
