@@ -4,9 +4,10 @@ import { SiteFooter } from "@/components/SiteFooter";
 import { SiteNav } from "@/components/SiteNav";
 import Link from "next/link";
 
-const SNIPPET = `pip install -e sdk
-python -m faultline.cli init
-python -m faultline.cli demo --open`;
+const SNIPPET = `pip install faultline-sdk
+export FAULTLINE_API_KEY=fl_...
+export FAULTLINE_API_URL=https://your-api.onrender.com
+python train.py`;
 
 const PROBLEMS = [
   ["Spot preemption", "Your GPU job disappears mid-epoch — hours of spend at risk."],

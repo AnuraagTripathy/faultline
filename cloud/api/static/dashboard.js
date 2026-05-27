@@ -2,7 +2,8 @@ const REFRESH_MS = 2000;
 const DEV_API_KEY = "fl_dev_local";
 const BASE_URL = window.location.origin;
 
-const STARTER_CODE = `import faultline
+const STARTER_CODE = `# pip install faultline-sdk
+import faultline
 
 run = faultline.start(
     "first-run",

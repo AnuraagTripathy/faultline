@@ -10,7 +10,8 @@ export function buildStarterScript(
   apiKey: string,
   baseUrl = DEFAULT_API_BASE_URL
 ): string {
-  return `import faultline
+  return `# pip install faultline-sdk
+import faultline
 
 run = faultline.start(
     "my-first-run",

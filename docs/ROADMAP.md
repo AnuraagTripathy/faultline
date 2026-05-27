@@ -30,7 +30,7 @@
 - PyO3 or in-process Rust API (reduce subprocess overhead)
 - Checkpoint format versioning / migration notes
 - CI workflow (Rust + Python on push)
-- Publish Python package (`pip install -e sdk`)
+- [x] Publish Python package to PyPI as `faultline-sdk` (`pip install faultline-sdk`; `import faultline`)
 
 ## Future
 

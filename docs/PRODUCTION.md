@@ -145,6 +145,8 @@ Services: **reverse-proxy** (Caddy), **cloud-api**, **web**. Provision Postgres 
 
 ## Hosted deployment patterns
 
+**Step-by-step (Vercel + Render + Neon + R2):** [DEPLOY_VERCEL_RENDER.md](DEPLOY_VERCEL_RENDER.md)
+
 ### Frontend — Vercel
 
 1. Deploy `web/` as a Next.js project.

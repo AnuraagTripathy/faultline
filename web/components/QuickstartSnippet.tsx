@@ -40,7 +40,9 @@ export function QuickstartSnippet() {
     <Card>
       <CardTitle>Connect your training script</CardTitle>
       <CardDescription className="mt-1 mb-4">
-        Create a key on{" "}
+        Install with{" "}
+        <code className="text-xs">pip install faultline-sdk</code> (import{" "}
+        <code className="text-xs">faultline</code> in Python), then create a key on{" "}
         <Link href="/account" className="text-accent">
           Account
         </Link>

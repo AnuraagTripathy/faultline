@@ -17,8 +17,8 @@ const CONTENT: Record<(typeof TABS)[number]["id"], { title: string; code: string
 uvicorn cloud.api.app:app --reload --port 8080
 
 # Terminal 2 — training (runs locally, streams to cloud)
-set PYTHONPATH=sdk
-python sdk/examples/cloud_pytorch_easy.py
+pip install faultline-sdk
+python train.py
 
 # Browser — Next.js UI
 cd web && npm run dev
@@ -51,8 +51,8 @@ for step in range(start_step, max_steps):
 export FAULTLINE_API_KEY=your-api-key-from-account-page
 export FAULTLINE_API_URL=https://your-faultline-api.example.com
 
-pip install -e sdk
-python train.py  # uses faultline.start(..., base_url=..., api_key=...)
+pip install faultline-sdk
+python train.py  # faultline.start(..., base_url=..., api_key=...)
 
 # Point web UI BFF at your API (server .env.local):
 # FAULTLINE_API_URL=https://your-faultline-api.example.com

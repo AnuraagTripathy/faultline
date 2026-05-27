@@ -174,7 +174,30 @@ Experiment trackers answer *"how did runs compare?"* Faultline answers *"my job 
 
 **Not experiment tracking.** Metrics, checkpoints, crash-to-resume, HuggingFace/Lightning callbacks, OAuth browser login, and alerts via **FastAPI + PostgreSQL + MinIO/S3**. v24 adds **Alembic migrations**, **production rate limiting**, and **startup hardening** for controlled beta deploys.
 
-**Deploy:** [docs/PRODUCTION.md](docs/PRODUCTION.md) · **Local:** [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) · **Launch checklist:** [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)
+**Deploy:** [docs/PRODUCTION.md](docs/PRODUCTION.md) · **Vercel + Render + Neon + R2:** [docs/DEPLOY_VERCEL_RENDER.md](docs/DEPLOY_VERCEL_RENDER.md) · **Local:** [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) · **Launch checklist:** [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)
+
+### Install the SDK (customers)
+
+Training runs on **your** machine (laptop, GPU VM, Slurm node, Colab). Faultline Cloud only stores metrics and checkpoints.
+
+```bash
+pip install faultline-sdk
+export FAULTLINE_API_KEY=fl_...          # from your dashboard → Account
+export FAULTLINE_API_URL=https://your-api.example.com
+```
+
+```python
+import faultline   # PyPI package name is faultline-sdk; import name is faultline
+
+run = faultline.start("my-run", project="demo", api_key=..., base_url=...)
+run.log(train_loss=0.5, step=1)
+run.save(step=10, model=model, optimizer=optimizer)
+run.complete()
+```
+
+See **[docs/PYPI.md](docs/PYPI.md)**. The PyPI name `faultline` is used by an unrelated project; we publish as **`faultline-sdk`**.
+
+**Contributors** hacking this repo: `pip install -e sdk` or `PYTHONPATH=sdk` instead of PyPI.
 
 ### Two-minute demo (no code)
 

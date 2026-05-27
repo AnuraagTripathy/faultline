@@ -1,10 +1,26 @@
 # Faultline Python SDK
 
+## Install (Faultline Cloud customers)
+
+```bash
+pip install faultline-sdk
+```
+
+```python
+import faultline   # PyPI name: faultline-sdk
+```
+
+Set `FAULTLINE_API_KEY` and `FAULTLINE_API_URL` on the machine where training runs. See [../docs/PYPI.md](../docs/PYPI.md).
+
+**Contributors** working in this monorepo: `pip install -e sdk` or `PYTHONPATH=sdk` instead of PyPI.
+
+---
+
 **Start here:** [../README.md](../README.md) (overview, benchmark highlights, demo path).
 
 **Operations:** [../docs/RUNBOOK.md](../docs/RUNBOOK.md) · **Design:** [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md)
 
-This package talks to the Rust `runtime` crate via subprocess (`cargo run` or a release binary) and optional **gRPC** (`GrpcAsyncRuntime` + `serve-grpc`).
+This package also talks to the Rust `runtime` crate via subprocess (`cargo run` or a release binary) and optional **gRPC** (`GrpcAsyncRuntime` + `serve-grpc`) for local experiments.
 
 ## Requirements
 

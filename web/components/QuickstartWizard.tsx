@@ -28,10 +28,10 @@ function buildSnippet(env: EnvId, fw: FwId, apiKey: string): { install: string; 
 
   const install =
     env === "hpc"
-      ? "pip install -e sdk  # on cluster login node\nexport FAULTLINE_API_KEY=fl_...\nexport FAULTLINE_API_URL=https://api.your-org.com"
+      ? "pip install faultline-sdk\nexport FAULTLINE_API_KEY=fl_...\nexport FAULTLINE_API_URL=https://api.your-org.com"
       : env === "cloud"
-        ? "pip install -e sdk\nexport FAULTLINE_API_KEY=fl_...\nexport FAULTLINE_API_URL=https://api.your-org.com"
-        : "pip install -e sdk\npython -m faultline.cli init";
+        ? "pip install faultline-sdk\nexport FAULTLINE_API_KEY=fl_...\nexport FAULTLINE_API_URL=https://api.your-org.com"
+        : "pip install faultline-sdk\npython -m faultline.cli init";
 
   if (fw === "huggingface") {
     return {

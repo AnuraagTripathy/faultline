@@ -70,9 +70,14 @@
 uvicorn cloud.api.app:app --reload --port 8080</pre>
 
       <h2>2. Install the SDK</h2>
-      <pre>pip install -e sdk
-# or from repo root: set PYTHONPATH=sdk</pre>
+      <pre>pip install faultline-sdk
+
+export FAULTLINE_API_KEY=fl_...    # from your dashboard → Account
+export FAULTLINE_API_URL=https://your-api.example.com</pre>
       <p>
+        <code>import faultline</code> in Python — the PyPI install name is
+        <code>faultline-sdk</code>. Local dev from this repo:
+        <code>pip install -e sdk</code> or <code>PYTHONPATH=sdk</code>.
         Dev API key (seeded on startup): <code>fl_dev_local</code>
       </p>
 
@@ -123,7 +128,7 @@ step = run.restore_latest(model=model, optimizer=optimizer)</pre>
         auto-retry daemon — manual or API-triggered relaunch only.
       </p>
       <ol>
-        <li><code>pip install -e sdk</code> (or <code>PYTHONPATH=sdk</code> on the cluster)</li>
+        <li><code>pip install faultline-sdk</code> on the cluster login node</li>
         <li>Set <code>FAULTLINE_API_KEY</code> and <code>base_url</code></li>
         <li><code>faultline.start()</code> · <code>run.log()</code> · <code>run.save()</code></li>
         <li>Register launch: <code>run.register_launch_command([...])</code> or <code>register_slurm_script(...)</code></li>

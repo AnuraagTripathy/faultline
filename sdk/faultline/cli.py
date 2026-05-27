@@ -23,7 +23,10 @@ from faultline.config import (
 from faultline.demo_simulator import run_live_demo
 from faultline.start import DEFAULT_API_KEY
 
-STARTER_TRAIN = '''"""Faultline starter training script."""
+STARTER_TRAIN = '''"""Faultline starter training script.
+
+Install: pip install faultline-sdk
+"""
 import os
 
 import faultline
@@ -87,10 +90,11 @@ def cmd_init(target: Path) -> int:
         print(f"wrote {env_file}")
     print(
         "\nNext steps:\n"
-        "  1. Copy .env.example to .env and set FAULTLINE_API_KEY\n"
-        "  2. docker compose -f docker-compose.cloud.yml up --build\n"
-        "  3. python train.py\n"
-        "  4. Open http://localhost:3000\n"
+        "  1. pip install faultline-sdk   (or pip install -e sdk from the repo)\n"
+        "  2. Copy .env.example to .env and set FAULTLINE_API_KEY\n"
+        "  3. docker compose -f docker-compose.cloud.yml up --build\n"
+        "  4. python train.py\n"
+        "  5. Open http://localhost:3000\n"
     )
     return 0
 
