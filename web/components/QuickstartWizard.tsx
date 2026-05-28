@@ -22,16 +22,19 @@ const FRAMEWORKS = [
 type EnvId = (typeof ENVIRONMENTS)[number]["id"];
 type FwId = (typeof FRAMEWORKS)[number]["id"];
 
-function buildSnippet(env: EnvId, fw: FwId, apiKey: string): { install: string; script: string; recovery: string } {
-  const base = 'base_url="http://127.0.0.1:8080"';
-  const key = `api_key="${apiKey || "YOUR_API_KEY"}"`;
+const DEFAULT_API =
+  process.env.NEXT_PUBLIC_FAULTLINE_API_URL?.replace(/\/$/, "") ??
+  "https://faultline-api.onrender.com";
 
-  const install =
-    env === "hpc"
-      ? "pip install faultline-sdk\nexport FAULTLINE_API_KEY=fl_...\nexport FAULTLINE_API_URL=https://api.your-org.com"
-      : env === "cloud"
-        ? "pip install faultline-sdk\nexport FAULTLINE_API_KEY=fl_...\nexport FAULTLINE_API_URL=https://api.your-org.com"
-        : "pip install faultline-sdk\npython -m faultline.cli init";
+function buildSnippet(env: EnvId, fw: FwId, apiKey: string): { install: string; script: string; recovery: string } {
+  const base = `base_url=os.environ.get("FAULTLINE_API_URL", "${DEFAULT_API}")`;
+  const key = apiKey
+    ? `api_key="${apiKey}"`
+    : 'api_key=os.environ["FAULTLINE_API_KEY"]';
+
+  const install = `pip install faultline-sdk
+export FAULTLINE_API_KEY=fl_...
+export FAULTLINE_API_URL=${DEFAULT_API}`;
 
   if (fw === "huggingface") {
     return {
@@ -70,31 +73,34 @@ trainer.fit(model, datamodule)`,
     };
   }
 
-  const resumeExtra =
+  const launchExtra =
     env === "hpc"
-      ? '\nrun.register_slurm_script("train.slurm")  # optional relaunch'
-      : "";
+      ? '\nrun.register_slurm_script("train.slurm")  # dashboard Resume Run → sbatch'
+      : env === "laptop"
+        ? `\nrun.register_launch_command(["python", "train.py"])  # same machine as API`
+        : "";
 
   return {
     install,
-    script: `import faultline
+    script: `import os
+import faultline
 
-run, start_step = faultline.auto_resume(
+run = faultline.start(
+    "my-training-run",
     project="my-project",
-    run_name="exp-1",
-    model=model,
-    optimizer=optimizer,
     ${key},
     ${base},
-)${resumeExtra}
+)${launchExtra}
+
+start_step = run.restore_latest(model=model, optimizer=optimizer)
 
 for step in range(start_step, 1000):
-    run.log(loss=loss, step=step)
+    run.log(train_loss=loss, step=step)
     if step % 100 == 0:
         run.save(model=model, optimizer=optimizer, step=step)
 
 run.complete()`,
-    recovery: `# Or attach after crash:
+    recovery: `# After stop/crash — paste run id from dashboard:
 run = faultline.attach("RUN_ID", ${key}, ${base})
 start_step = run.restore_latest(model=model, optimizer=optimizer)`,
   };

@@ -147,7 +147,11 @@ export async function fetchCheckpoints(runId: string): Promise<Checkpoint[]> {
 }
 
 export async function fetchRecovery(runId: string): Promise<RecoverySummary> {
-  return request(`/api/runs/${encodeURIComponent(runId)}/recovery`);
+  const base =
+    typeof process !== "undefined" &&
+    process.env.NEXT_PUBLIC_FAULTLINE_API_URL?.replace(/\/$/, "");
+  const q = base ? `?base_url=${encodeURIComponent(base)}` : "";
+  return request(`/api/runs/${encodeURIComponent(runId)}/recovery${q}`);
 }
 
 export async function resumeRun(runId: string): Promise<ResumeResponse> {

@@ -97,8 +97,11 @@ export function RecoveryPanel({
           )}
           Resume Run
         </Button>
-        <p className="text-xs text-muted">
-          Manual relaunch only — uses stored launch config, no auto-retry loop.
+        <p className="text-xs text-muted max-w-xl">
+          Starts the stored launch command on the <strong className="text-foreground">API server</strong>{" "}
+          (same host as the API process). Works for local/self-hosted API + training on one machine.
+          For Colab or a remote GPU VM, use <strong className="text-foreground">Resume code</strong>{" "}
+          below and re-run your script with <code className="text-xs">faultline.attach</code>.
         </p>
       </div>
       {error ? <p className="text-sm text-danger">{error}</p> : null}

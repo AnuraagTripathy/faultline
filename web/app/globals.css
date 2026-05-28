@@ -51,3 +51,13 @@ a {
 .prose-faultline p {
   @apply text-muted leading-relaxed;
 }
+
+/* GIF-style looping videos — no controls chrome */
+.looping-video::-webkit-media-controls {
+  display: none !important;
+}
+
+.looping-video {
+  -webkit-appearance: none;
+  appearance: none;
+}

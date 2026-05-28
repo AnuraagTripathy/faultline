@@ -17,8 +17,14 @@ export function AlertSettingsCard({
   return (
     <Card>
       <CardTitle>Alert delivery</CardTitle>
-      <CardDescription className="mt-1">
-        Email (SMTP), Discord, or Slack — triggered on stale runs, checkpoint issues, recovery
+      <CardDescription className="mt-1 space-y-2">
+        <p>
+          Discord or Slack webhooks work immediately. Email needs SMTP configured on the API
+          host (<code className="text-xs">FAULTLINE_SMTP_HOST</code> on Render).
+        </p>
+        <p className="text-xs">
+          Alerts fire when a run stops, fails, goes stale, or has checkpoint problems.
+        </p>
       </CardDescription>
       <div className="mt-4 space-y-3">
         <label className="block text-sm">

@@ -1,4 +1,5 @@
 import { CodeBlock } from "@/components/CodeBlock";
+import { LoopingVideo } from "@/components/LoopingVideo";
 import { MediaFrame } from "@/components/MediaFrame";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteNav } from "@/components/SiteNav";
@@ -49,16 +50,9 @@ export default function LandingPage() {
               </div>
             </div>
           </div>
-          <MediaFrame
-            kind="video"
-            title="Product overview"
-            aspect="wide"
-            className="w-full shadow-md max-w-6xl mx-auto"
-          />
-          <p className="text-center text-xs text-subtle mt-3">
-            Replace with your screen recording at{" "}
-            <code className="font-mono">public/assets/videos/product-overview.mp4</code>
-          </p>
+          <MediaFrame kind="video" aspect="video" className="w-full shadow-md">
+            <LoopingVideo src="/assets/videos/monitoring.mp4" />
+          </MediaFrame>
         </section>
 
         {/* Architecture — text only */}
@@ -121,11 +115,9 @@ export default function LandingPage() {
                 </Link>
               </div>
             </div>
-            <MediaFrame
-              kind="gif"
-              title="Crash → resume walkthrough"
-              aspect="video"
-            />
+            <MediaFrame kind="video" aspect="video" className="w-full shadow-md">
+              <LoopingVideo src="/assets/videos/recovery.mp4" />
+            </MediaFrame>
           </div>
         </section>
 
